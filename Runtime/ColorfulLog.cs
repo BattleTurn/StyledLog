@@ -8,7 +8,7 @@ namespace Colorful.Log
     /// </summary>
     public static class Colorful
     {
-        public delegate string FormatDelegate(string content, string message, string hexColor);
+        public delegate string FormatDelegate(string content, object message, string hexColor);
 
         public static event FormatDelegate onLogEvent;
         /// <summary>
