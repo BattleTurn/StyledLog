@@ -1,7 +1,7 @@
 using UnityEngine;
 using System;
 
-namespace Utilities
+namespace UniLog
 {
     /// <summary>
     /// Utility class for displaying colored debug messages in the Unity console.
