@@ -6,9 +6,9 @@ namespace Colorful.Log
     /// <summary>
     /// Utility class for displaying colored debug messages in the Unity console.
     /// </summary>
-    public static class ColorfulLog
+    public static class Colorful
     {
-        public delegate string FormatDelegate(string message, string hexColor);
+        public delegate string FormatDelegate(string content, string message, string hexColor);
 
         public static event FormatDelegate onLogEvent;
         /// <summary>
@@ -18,7 +18,7 @@ namespace Colorful.Log
         /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
         private static string LogHex(object message, string hexColor, Action<object> doLog)
         {
-            string log = onLogEvent != null ? onLogEvent.Invoke(message.ToString(), hexColor)
+            string log = onLogEvent != null ? onLogEvent.Invoke("<color=#{1}>{0}</color>", message, hexColor)
                 : string.Format("<color=#{1}>{0}</color>", hexColor, message);
             doLog.Invoke(log);
             return log;
@@ -31,6 +31,10 @@ namespace Colorful.Log
         /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
         public static string Log(object message, string hexColor, Action<object> doLog)
         {
+            if (hexColor.Contains("#"))
+            {
+                hexColor = hexColor.Replace("#", "");
+            }
             return LogHex(message, hexColor, doLog);
         }
 
