@@ -8,7 +8,7 @@ namespace UniLog
     /// </summary>
     public static class Colorful
     {
-        public delegate string FormatDelegate(string content, object message, string hexColor, params object[] parameters);
+        public delegate string FormatDelegate(string content, string message, string hexColor, params object[] parameters);
 
         public static event FormatDelegate onLogEvent;
 
@@ -17,23 +17,10 @@ namespace UniLog
         /// </summary>
         /// <param name="message">The message to log</param>
         /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
-        private static string LogHex(object message, string hexColor, Action<object> doLog)
-        {
-            string log = onLogEvent != null ? onLogEvent.Invoke("<color=#{1}>{0}</color>", message, hexColor)
-                : string.Format("<color=#{1}>{0}</color>", hexColor, message);
-            doLog.Invoke(log);
-            return log;
-        }
-
-        /// <summary>
-        /// Log a message with a specific color.
-        /// </summary>
-        /// <param name="message">The message to log</param>
-        /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
-        private static string LogHex(object message, string hexColor, Action<object> doLog, params object[] parameters)
+        private static string LogHex(string message, string hexColor, Action<object> doLog, params object[] parameters)
         {
             string log = onLogEvent != null ? onLogEvent.Invoke("<color=#{1}>{0}</color>", message, hexColor, parameters)
-                : string.Format("<color=#{1}>{0}</color>", hexColor, message, parameters);
+                : string.Format($"<color=#{hexColor}>{message}</color>", parameters);
             doLog.Invoke(log);
             return log;
         }
@@ -43,13 +30,16 @@ namespace UniLog
         /// </summary>
         /// <param name="message">The message to log</param>
         /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
-        public static string Log(object message, string hexColor, Action<object> doLog)
+        /// <param name="doLog">The logging action to perform</param>
+        /// <param name="parameters">Additional parameters for formatting the message</param>
+        /// <returns>The formatted log message</returns>
+        public static string Log(string message, string hexColor, Action<object> doLog, params object[] parameters)
         {
             if (hexColor.Contains("#"))
             {
                 hexColor = hexColor.Replace("#", "");
             }
-            return LogHex(message, hexColor, doLog);
+            return LogHex(message, hexColor, doLog, parameters);
         }
 
         /// <summary>
@@ -57,10 +47,10 @@ namespace UniLog
         /// </summary>
         /// <param name="message">The message to log</param>
         /// <param name="color">color (0-255)</param>
-        public static string Log(object message, Color color, Action<object> doLog)
+        public static string Log(string message, Color color, Action<object> doLog, params object[] parameters)
         {
             string hexColor = ColorUtility.ToHtmlStringRGB(color);
-            LogHex(message, hexColor, doLog);
+            LogHex(message, hexColor, doLog, parameters);
             return hexColor;
         }
     }
