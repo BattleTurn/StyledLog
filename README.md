@@ -20,16 +20,16 @@ Use **Unity Package Manager** (UPM) to add the package from GitHub URL:
 ```
 using Debug = Colorful.Debug;
 
-Debug.Log("Hello, World!", "FF0000");
-``` // Logs in red
+Debug.Log("Hello, World!", "FF0000"); // Logs in red
+```
 
 2️⃣ Log with RGB Color
 
 ```
 using Debug = Colorful.Debug;
 
-Debug.Log("Info message", new Color(0, 1, 0));
-``` // Logs in green
+Debug.Log("Info message", new Color(0, 1, 0)); // Logs in green
+```
 
 3️⃣ Customize Log Formatting
 
