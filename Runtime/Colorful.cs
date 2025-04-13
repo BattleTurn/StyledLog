@@ -144,7 +144,7 @@ namespace Colorful
             string log;
             if (onStringBuilderAppendEvent != null)
             {
-                string sb = onStringBuilderAppendEvent.Invoke("<color=#>", hexColor, ">", message, "</color", parameters);
+                string sb = onStringBuilderAppendEvent.Invoke("<color=#", hexColor, ">", message, "</color>", parameters);
                 log = onLogEvent.Invoke(sb, parameters);
             }
             else

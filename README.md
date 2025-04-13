@@ -16,15 +16,34 @@ Use **Unity Package Manager** (UPM) to add the package from GitHub URL:
 ## 🔧 Usage
 
 1️⃣ Log with Hex Color
+```using Debug = Colorful.Debug;```
 
-```LogColorful.Log("Hello, World!", "FF0000", Debug.Log);``` // Logs in red
+```Debug.Log("Hello, World!", "FF0000");``` // Logs in red
 
 2️⃣ Log with RGB Color
+```using Debug = Colorful.Debug;```
 
-```LogColorful.Log("Info message", new Color(0, 1, 0), Debug.Log);``` // Logs in green
+```Debug.Log("Info message", new Color(0, 1, 0));``` // Logs in green
 
 3️⃣ Customize Log Formatting
+```using Debug = Colorful.Debug;```
 
-```LogColorful.onLogEvent += (message, color) => $"[LOG] <color=#{color}>{message}</color>";```
+```Debug.onLogEvent += (message, parameters) => string.Format(message, parameters);```
 
-```LogColorful.Log("Custom format!", "00FFFF", Debug.Log);```
+```Debug.Log("Custom format!", "00FFFF");```
+
+4️⃣ Customize with StringBuilder
+```using Debug = Colorful.Debug;```
+
+```
+private string AppendByStringBuilder(params object[] parameters)
+{
+    var sb = new StringBuilder();
+    foreach (var parameter in parameters)
+    {
+        sb.Append(parameter);
+    }
+    return sb.ToString();
+}
+```
+```Debug.onStringBuilderAppendEvent += AppendByStringBuilder;```
