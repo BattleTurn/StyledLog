@@ -1,6 +1,6 @@
 {
     "name": "ColorfulLog",
-    "rootNamespace": "Colorful.Log",
+    "rootNamespace": "Colorful",
     "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],

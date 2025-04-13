@@ -2,7 +2,7 @@ using System;
 using System.Text;
 using UnityEngine;
 
-namespace UniLog
+namespace Colorful
 {
     /// <summary>
     /// Utility class for displaying colored debug messages in the Unity console.
