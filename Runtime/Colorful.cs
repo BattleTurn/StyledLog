@@ -155,7 +155,7 @@ namespace Colorful
                 stringBuilder.Append(">");
                 stringBuilder.Append(message);
                 stringBuilder.Append("</color>");
-                log = onLogEvent.Invoke(stringBuilder.ToString(), parameters == 0 || parameters == null ? "" : parameters);
+                log = onLogEvent.Invoke(stringBuilder.ToString(), parameters.Length == 0 || parameters == null ? "" : parameters);
             }
 
             return log;
