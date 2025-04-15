@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using System.Text.RegularExpressions;
+using Colorful.ScriptableObjects;
 using UnityEngine;
 
 namespace Colorful
@@ -104,7 +105,7 @@ namespace Colorful
         /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
         /// <param name="parameters">Additional parameters for formatting the message</param>
         /// <returns>The formatted log message</returns>
-        public static string Log(object message, string hexColor = "#ffffff", params object[] parameters)
+        public static string LogHex(object message, string hexColor = "#ffffff", params object[] parameters)
         {
             return Log(message, hexColor, UnityEngine.Debug.Log, parameters);
         }
@@ -116,12 +117,8 @@ namespace Colorful
         /// <param name="color">color (0-255)</param>
         /// <param name="parameters">Additional parameters for formatting the message</param>
         /// <returns>The formatted log message</returns>
-        public static string Log(object message, Color color, params object[] parameters)
+        public static string Log(object message, Color color = default, params object[] parameters)
         {
-            if (color == default)
-            {
-                color = Color.white;
-            }
             return Log(message, color, UnityEngine.Debug.Log, parameters);
         }
 
@@ -132,7 +129,7 @@ namespace Colorful
         /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
         /// <param name="parameters">Additional parameters for formatting the message</param>
         /// <returns>The formatted log message</returns>
-        public static string LogWarning(object message, string hexColor, params object[] parameters)
+        public static string LogHexWarning(object message, string hexColor = "#ffffff", params object[] parameters)
         {
             return Log(message, hexColor, UnityEngine.Debug.LogWarning, parameters);
         }
@@ -144,7 +141,7 @@ namespace Colorful
         /// <param name="color">color (0-255)</param>
         /// <param name="parameters">Additional parameters for formatting the message</param>
         /// <returns>The formatted log message</returns>
-        public static string LogWarning(object message, Color color, params object[] parameters)
+        public static string LogWarning(object message, Color color = default, params object[] parameters)
         {
             return Log(message, color, UnityEngine.Debug.LogWarning, parameters);
         }
@@ -156,7 +153,7 @@ namespace Colorful
         /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
         /// <param name="parameters">Additional parameters for formatting the message</param>
         /// <returns>The formatted log message</returns>
-        public static string LogError(object message, string hexColor, params object[] parameters)
+        public static string LogHexError(object message, string hexColor = "#ffffff", params object[] parameters)
         {
             return Log(message, hexColor, UnityEngine.Debug.LogError, parameters);
         }
@@ -168,7 +165,7 @@ namespace Colorful
         /// <param name="color">color (0-255)</param>
         /// <param name="parameters">Additional parameters for formatting the message</param>
         /// <returns>The formatted log message</returns>
-        public static string LogError(object message, Color color, params object[] parameters)
+        public static string LogError(object message, Color color = default, params object[] parameters)
         {
             return Log(message, color, UnityEngine.Debug.LogError, parameters);
         }
@@ -218,6 +215,11 @@ namespace Colorful
         /// <returns>The formatted log message</returns>
         private static string Log(object message, string hexColor, Action<object> doLog, params object[] parameters)
         {
+            if (Setting.IsDebugLogEnable == false)
+            {
+                return string.Empty;
+            }
+
             if (hexColor.Contains("#"))
             {
                 hexColor = hexColor.Replace("#", "");
@@ -235,6 +237,16 @@ namespace Colorful
         /// <returns>The formatted log message</returns>
         private static string Log(object message, Color color, Action<object> doLog, params object[] parameters)
         {
+            if (Setting.IsDebugLogEnable == false)
+            {
+                return string.Empty;
+            }
+
+            if (color == default)
+            {
+                color = Color.white;
+            }
+
             string hexColor = ColorUtility.ToHtmlStringRGB(color);
             LogHex(message, hexColor, doLog, parameters);
             return hexColor;
