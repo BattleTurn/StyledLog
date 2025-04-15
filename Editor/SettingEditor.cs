@@ -30,6 +30,8 @@ namespace Colorful.ScriptableObjects.Editor
                 Setting newInstance = (Setting)EditorGUILayout.ObjectField("Current Instance", Setting.Instance, typeof(Setting), false);
                 if (newInstance != Setting.Instance && newInstance != null)
                 {
+                    
+                    //TODO: will auto serialize instance on auto create
                     // Use reflection to set the private _instance field
                     var instanceField = typeof(Setting).GetField("_instance", 
                         System.Reflection.BindingFlags.NonPublic | 
