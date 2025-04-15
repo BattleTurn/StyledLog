@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace Colorful
@@ -10,10 +11,91 @@ namespace Colorful
     public static class Debug
     {
         public delegate string FormatDelegate(string message, params object[] parameters);
-        public delegate string StringBuilderAppends(params object[] parameters);
+        public delegate string StringBuilderAppendDelegate(params object[] parameters);
 
         public static event FormatDelegate onLogEvent;
-        public static event StringBuilderAppends onStringBuilderAppendEvent;
+        public static event StringBuilderAppendDelegate stringBuilderAppendEvent;
+
+        /// <summary>
+        /// Log a message with multiple color sections using special markup.
+        /// Supports both color markup and object interpolation.
+        /// </summary>
+        /// <param name="formattedText">Text with color markup {#RRGGBB:colored text}</param>
+        /// <param name="logType">The type of log (default is regular log)</param>
+        /// <param name="args">Objects for string formatting</param>
+        /// <returns>The processed rich text string</returns>
+        public static string LogMultiColor(string formattedText, LogType logType = LogType.Log, params object[] args)
+        {
+            // Apply any standard formatting with args if provided
+            string interpolatedText = formattedText;
+            if (args != null && args.Length > 0)
+            {
+                // Temporarily protect color markup from string.Format
+                interpolatedText = ProtectColorMarkup(formattedText);
+
+                // Apply standard string formatting
+                interpolatedText = onLogEvent == null ? string.Format(interpolatedText, args) : onLogEvent.Invoke(interpolatedText, args);
+
+                // Restore the protected color markup
+                interpolatedText = RestoreColorMarkup(interpolatedText);
+            }
+
+            // Process color markup
+            string processedText = ProcessMultiColorMarkup(interpolatedText);
+
+            switch (logType)
+            {
+                case LogType.Warning:
+                    UnityEngine.Debug.LogWarning(processedText);
+                    break;
+                case LogType.Error:
+                    UnityEngine.Debug.LogError(processedText);
+                    break;
+                default:
+                    UnityEngine.Debug.Log(processedText);
+                    break;
+            }
+
+            return processedText;
+        }
+
+        /// <summary>
+        /// Temporarily replace color markup so it's not processed by string.Format
+        /// </summary>
+        private static string ProtectColorMarkup(string text)
+        {
+            return Regex.Replace(text, @"\{#([0-9A-Fa-f]{6}):([^{}]*)\}", "<<COLOR:$1>>$2<<END>>");
+        }
+
+        /// <summary>
+        /// Restore the protected color markup
+        /// </summary>
+        private static string RestoreColorMarkup(string text)
+        {
+            return Regex.Replace(text, @"<<COLOR:([0-9A-Fa-f]{6})>>([^<]*)<<END>>", "{#$1:$2}");
+        }
+
+        /// <summary>
+        /// Log a warning message with multiple color sections
+        /// </summary>
+        /// <param name="formattedText">Text with color markup {#RRGGBB:colored text}</param>
+        /// <param name="args">Objects for string formatting</param>
+        /// <returns>The processed rich text string</returns>
+        public static string LogWarningMultiColor(string formattedText, params object[] args)
+        {
+            return LogMultiColor(formattedText, LogType.Warning, args);
+        }
+
+        /// <summary>
+        /// Log an error message with multiple color sections
+        /// </summary>
+        /// <param name="formattedText">Text with color markup {#RRGGBB:colored text}</param>
+        /// <param name="args">Objects for string formatting</param>
+        /// <returns>The processed rich text string</returns>
+        public static string LogErrorMultiColor(string formattedText, params object[] args)
+        {
+            return LogMultiColor(formattedText, LogType.Error, args);
+        }
 
         /// <summary>
         /// Log a message with a specific color.
@@ -22,7 +104,7 @@ namespace Colorful
         /// <param name="hexColor">The color in hexadecimal format (e.g., "FF0000" for red)</param>
         /// <param name="parameters">Additional parameters for formatting the message</param>
         /// <returns>The formatted log message</returns>
-        public static string Log(object message, string hexColor, params object[] parameters)
+        public static string Log(object message, string hexColor = "#ffffff", params object[] parameters)
         {
             return Log(message, hexColor, UnityEngine.Debug.Log, parameters);
         }
@@ -36,6 +118,10 @@ namespace Colorful
         /// <returns>The formatted log message</returns>
         public static string Log(object message, Color color, params object[] parameters)
         {
+            if (color == default)
+            {
+                color = Color.white;
+            }
             return Log(message, color, UnityEngine.Debug.Log, parameters);
         }
 
@@ -85,6 +171,41 @@ namespace Colorful
         public static string LogError(object message, Color color, params object[] parameters)
         {
             return Log(message, color, UnityEngine.Debug.LogError, parameters);
+        }
+
+        /// <summary>
+        /// Process text with color markup into Unity rich text format
+        /// </summary>
+        /// <param name="text">Text with color markup {#RRGGBB:colored text}</param>
+        /// <returns>Unity rich text with proper color tags</returns>
+        private static string ProcessMultiColorMarkup(string text)
+        {
+            // Match pattern {#RRGGBB:text} and replace with <color=#RRGGBB>text</color>
+            string pattern = @"\{#([0-9A-Fa-f]{6}):([^{}]*)\}";
+            StringBuilder sb = new StringBuilder();
+
+            return Regex.Replace(text, pattern, match =>
+            {
+                string hexColor = match.Groups[1].Value;
+                string coloredText = match.Groups[2].Value;
+
+                string appendedStrings = string.Empty;
+                if (stringBuilderAppendEvent == null)
+                {
+                    sb.Append("<color=#");
+                    sb.Append(hexColor);
+                    sb.Append(">");
+                    sb.Append(coloredText);
+                    sb.Append("</color>");
+                    appendedStrings = sb.ToString();
+                }
+                else
+                {
+                    appendedStrings = stringBuilderAppendEvent.Invoke("<color=#", hexColor, ">", coloredText, "</color>");
+                }
+
+                return sb.ToString();
+            });
         }
 
         /// <summary>
@@ -142,9 +263,9 @@ namespace Colorful
         private static string HandleStringBuilderEvent(object message, string hexColor, object[] parameters)
         {
             string log;
-            if (onStringBuilderAppendEvent != null)
+            if (stringBuilderAppendEvent != null)
             {
-                string sb = onStringBuilderAppendEvent.Invoke("<color=#", hexColor, ">", message, "</color>", parameters.Length == 0 || parameters == null ? "" : parameters);
+                string sb = stringBuilderAppendEvent.Invoke("<color=#", hexColor, ">", message, "</color>", parameters.Length == 0 || parameters == null ? "" : parameters);
                 log = onLogEvent.Invoke(sb, parameters);
             }
             else

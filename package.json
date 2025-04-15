@@ -1,16 +1,20 @@
 {
   "name": "colorful-log",
-  "version": "0.0.1-preview",
+  "version": "0.0.2",
   "displayName": "Colorful Log",
   "description": "A Unity utility package for logging messages in different colors to the console.",
   "author": "Echo Of Steel",
   "unity": "2020.3",
-  "keywords": ["unity", "log", "color", "debug", "console"],
+  "keywords": [
+    "unity",
+    "log",
+    "color",
+    "debug",
+    "console"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/tindvor239/colorful-log"
   },
-  "hideInEditor": false,
-  "dependencies": {
-  }
+  "hideInEditor": false
 }
