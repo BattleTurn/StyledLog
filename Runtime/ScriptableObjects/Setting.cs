@@ -9,8 +9,14 @@ namespace Colorful.ScriptableObjects
     {
         private static Setting _instance;
 
+        [Header("Debug Log Settings")]
         [SerializeField]
-        private bool _isDebugLogEnable = true;
+        [Tooltip("Enable debug log on developer mode.")]
+        private bool _isDebugLogEnableOnDevMode = true;
+
+        [SerializeField]
+        [Tooltip("Enable debug log on product mode.")]
+        private bool _isDebugLogEnableOnProductMode = false;
 
         public static Setting Instance
         {
@@ -20,7 +26,7 @@ namespace Colorful.ScriptableObjects
             }
         }
 
-        public static bool IsDebugLogEnable
+        public static bool IsDebugLogOnDevMode
         {
             get
             {
@@ -29,8 +35,31 @@ namespace Colorful.ScriptableObjects
                     return true; // Default to true if instance is not found
                 }
 
-                return Instance._isDebugLogEnable;
+                return Instance._isDebugLogEnableOnDevMode;
             }
+        }
+
+        public static bool IsDebugLogEnableOnProductMode
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    return false; // Default to false if instance is not found
+                }
+
+                return Instance._isDebugLogEnableOnProductMode;
+            }
+        }
+
+        private void Awake()
+        {
+            _instance = this;
+        }
+
+        private void OnEnable()
+        {
+            _instance = this;
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]

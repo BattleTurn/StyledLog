@@ -143,6 +143,10 @@ namespace Colorful
         /// <returns>The formatted log message</returns>
         public static string LogWarning(object message, Color color = default, params object[] parameters)
         {
+            if (color == default)
+            {
+                color = Color.yellow;
+            }
             return Log(message, color, UnityEngine.Debug.LogWarning, parameters);
         }
 
@@ -177,6 +181,11 @@ namespace Colorful
         /// <returns>Unity rich text with proper color tags</returns>
         private static string ProcessMultiColorMarkup(string text)
         {
+            bool isDebugLogEnable = CheckCanDebug();
+            if (!isDebugLogEnable)
+            {
+                return string.Empty;
+            }
             // Match pattern {#RRGGBB:text} and replace with <color=#RRGGBB>text</color>
             string pattern = @"\{#([0-9A-Fa-f]{6}):([^{}]*)\}";
             StringBuilder sb = new StringBuilder();
@@ -215,7 +224,7 @@ namespace Colorful
         /// <returns>The formatted log message</returns>
         private static string Log(object message, string hexColor, Action<object> doLog, params object[] parameters)
         {
-            if (Setting.IsDebugLogEnable == false)
+            if (Setting.IsDebugLogOnDevMode == false)
             {
                 return string.Empty;
             }
@@ -237,7 +246,8 @@ namespace Colorful
         /// <returns>The formatted log message</returns>
         private static string Log(object message, Color color, Action<object> doLog, params object[] parameters)
         {
-            if (Setting.IsDebugLogEnable == false)
+            bool isDebugLogEnable = CheckCanDebug();
+            if (!isDebugLogEnable)
             {
                 return string.Empty;
             }
@@ -250,6 +260,18 @@ namespace Colorful
             string hexColor = ColorUtility.ToHtmlStringRGB(color);
             LogHex(message, hexColor, doLog, parameters);
             return hexColor;
+        }
+
+        private static bool CheckCanDebug()
+        {
+            bool isDebugLogEnable = Setting.IsDebugLogEnableOnProductMode;
+
+#if UNITY_EDITOR
+            isDebugLogEnable = Setting.IsDebugLogOnDevMode;
+#else
+            isDebugLogEnable = Setting.IsDebugLogEnableOnProductMode;
+#endif
+            return isDebugLogEnable;
         }
 
         /// <summary>
