@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEditor;
+using System.Linq;
 
 namespace Colorful.ScriptableObjects.Editor
 {
@@ -8,7 +9,8 @@ namespace Colorful.ScriptableObjects.Editor
     [CustomEditor(typeof(Setting))]
     public sealed class SettingEditor : UnityEditor.Editor
     {
-        const string SETTINGS_PATH = "Assets/Colorful/Resources";
+        const string SETTINGS_PATH = "Assets/Colorful";
+        const string SETTING_CONTAINER_PATH = "ScriptableObjects";
         const string SETTINGS_ASSET_NAME = "ColorfulLogSettings.asset";
 
         static SettingEditor()
@@ -25,34 +27,15 @@ namespace Colorful.ScriptableObjects.Editor
             if (settings != null)
             {
                 EditorGUILayout.Space(10);
-                EditorGUILayout.LabelField("Instance Settings", EditorStyles.boldLabel);
-                
-                Setting newInstance = (Setting)EditorGUILayout.ObjectField("Current Instance", Setting.Instance, typeof(Setting), false);
-                if (newInstance != Setting.Instance && newInstance != null)
-                {
-                    
-                    //TODO: will auto serialize instance on auto create
-                    // Use reflection to set the private _instance field
-                    var instanceField = typeof(Setting).GetField("_instance", 
-                        System.Reflection.BindingFlags.NonPublic | 
-                        System.Reflection.BindingFlags.Static);
-                    
-                    if (instanceField != null)
-                    {
-                        instanceField.SetValue(null, newInstance);
-                        EditorUtility.SetDirty(newInstance);
-                        AssetDatabase.SaveAssets();
-                        Debug.Log($"Colorful Log instance changed to {AssetDatabase.GetAssetPath(newInstance)}");
-                    }
-                }
+                EditorGUILayout.LabelField("DEBUG", EditorStyles.boldLabel);
+
+                EditorGUI.BeginDisabledGroup(true);
+                EditorGUILayout.ObjectField("Instance", Setting.Instance, typeof(Setting), false);
+                EditorGUI.EndDisabledGroup();
                 
                 if (Setting.Instance != settings)
                 {
-                    EditorGUILayout.HelpBox("This is not the active settings instance. Settings will only apply if this asset is in Resources folder.", MessageType.Warning);
-                }
-                else
-                {
-                    EditorGUILayout.HelpBox("This is the active settings instance being used by Colorful Log.", MessageType.Info);
+                    EditorGUILayout.HelpBox("There are more than one Colorful Log setting", MessageType.Warning);
                 }
                 
                 if (GUI.changed)
@@ -64,17 +47,17 @@ namespace Colorful.ScriptableObjects.Editor
 
         private static void CheckAndCreateSettingsAsset()
         {
-            const string fullAssetPath = SETTINGS_PATH + "/" + SETTINGS_ASSET_NAME;
+            const string fullAssetPath = SETTINGS_PATH + "/" + SETTING_CONTAINER_PATH + "/" + SETTINGS_ASSET_NAME;
 
             // Check if directory exists, if not create it
-            if (!AssetDatabase.IsValidFolder("Assets/Colorful"))
+            if (!AssetDatabase.IsValidFolder(SETTINGS_PATH))
             {
                 AssetDatabase.CreateFolder("Assets", "Colorful");
             }
 
-            if (!AssetDatabase.IsValidFolder(SETTINGS_PATH))
+            if (!AssetDatabase.IsValidFolder(SETTINGS_PATH + "/" + SETTING_CONTAINER_PATH))
             {
-                AssetDatabase.CreateFolder("Assets/Colorful", "Resources");
+                AssetDatabase.CreateFolder(SETTINGS_PATH, SETTING_CONTAINER_PATH);
             }
 
             // Check if settings asset exists
@@ -95,39 +78,59 @@ namespace Colorful.ScriptableObjects.Editor
             }
         }
 
-        private static bool CheckIfSettingExist(string fullAssetPath, out Setting settings)
+        private static bool CheckIfSettingExist(string fullAssetPath, out Setting setting)
         {
-            settings = AssetDatabase.LoadAssetAtPath<Setting>(fullAssetPath);
+            setting = AssetDatabase.LoadAssetAtPath<Setting>(fullAssetPath);
 
-            if (settings != null)
+            if (setting != null)
             {
                 return false;
             }
 
-            // If not found, search for it in the entire project
-            string[] guids = AssetDatabase.FindAssets("t:Setting");
-            foreach (string guid in guids)
-            {
-                string path = AssetDatabase.GUIDToAssetPath(guid);
-                settings = AssetDatabase.LoadAssetAtPath<Setting>(path);
-                if (settings == null)
-                {
-                    continue; // Not a Setting asset, skip it
-                }
+            CheckIfManySettings(out setting);
+            return setting != null ? true : false;
+        }
 
-                // Found the settings somewhere else
-                if (!path.Contains("/Resources/"))
+        private static bool CheckIfManySettings(out Setting setting)
+        {
+            // Found the settings somewhere else
+            // Check for multiple settings assets in the project
+            string[] settingGuids = AssetDatabase.FindAssets("t:Setting");
+
+            setting = null;
+            string instancedSettingPath = AssetDatabase.GetAssetPath(Setting.Instance);
+
+            foreach (string settingGuid in settingGuids)
+            {
+                string settingPath = AssetDatabase.GUIDToAssetPath(settingGuid);
+                if (settingPath == instancedSettingPath)
                 {
-                    Debug.LogWarning("ColorfulLog settings found at " + path + " but it should be in a Resources folder to work correctly.", Color.yellow);
+                    setting = AssetDatabase.LoadAssetAtPath<Setting>(settingPath);
+                    break;
                 }
-                else
-                {
-                    Debug.Log("ColorfulLog settings found at " + path, Color.green);
-                }
-                return true; // Settings found, no need to create
             }
 
-            return false; // Settings not found anywhere
+            if (settingGuids.Length <= 1)
+            {
+                Debug.Log("ColorfulLog settings found at " + instancedSettingPath, Color.green);
+                return false;
+            }
+
+            EditorGUILayout.HelpBox($"Found {settingGuids.Length} Setting assets in the project. " +
+                    "Multiple settings may cause unexpected behavior. " +
+                    $"Only the one in {instancedSettingPath} folder will be used.", MessageType.Warning);
+
+            if (GUILayout.Button("Show All Settings In Project"))
+            {
+                // Find and select all settings assets
+                Selection.objects = settingGuids
+                    .Select(AssetDatabase.GUIDToAssetPath)
+                    .Select(AssetDatabase.LoadAssetAtPath<Setting>)
+                    .Where(s => s != null)
+                    .Cast<Object>()
+                    .ToArray();
+            }
+            return true;
         }
 
         private void OnEnable()
