@@ -18,6 +18,15 @@ namespace Colorful.ScriptableObjects
         [Tooltip("Enable debug log on product mode.")]
         private bool _isDebugLogEnableOnProductMode = false;
 
+        [SerializeField]
+        [Tooltip("ScriptableObject for format settings.")]
+        private FormatSO _formatSO = null;
+
+        [SerializeField]
+        [Tooltip("ScriptableObject for string builder settings.")]
+        private StringBuilderSO _stringBuilderSO = null;
+
+
         public static Setting Instance
         {
             get
@@ -65,7 +74,8 @@ namespace Colorful.ScriptableObjects
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void OnRuntimeStart()
         {
-            Debug.LogHex("UnitTest initialized at runtime. This runs when entering play mode.");
+            Debug.onFormatEvent += _instance._formatSO.GetFormat;
+            Debug.stringBuilderAppendEvent += _instance._stringBuilderSO.GetStringBuilderAppends;
         }
     }
 }

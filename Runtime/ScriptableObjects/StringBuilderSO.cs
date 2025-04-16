@@ -4,6 +4,6 @@ namespace Colorful.ScriptableObjects
 {
     public abstract class StringBuilderSO : ScriptableObject
     {
-        public abstract Debug.StringBuilderAppendDelegate GetStringBuilderAppends();
+        public abstract string GetStringBuilderAppends(params object[] parameters);
     }
 }

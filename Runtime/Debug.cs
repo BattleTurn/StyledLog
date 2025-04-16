@@ -14,7 +14,7 @@ namespace Colorful
         public delegate string FormatDelegate(string message, params object[] parameters);
         public delegate string StringBuilderAppendDelegate(params object[] parameters);
 
-        public static event FormatDelegate onLogEvent;
+        public static event FormatDelegate onFormatEvent;
         public static event StringBuilderAppendDelegate stringBuilderAppendEvent;
 
         /// <summary>
@@ -35,7 +35,7 @@ namespace Colorful
                 interpolatedText = ProtectColorMarkup(formattedText);
 
                 // Apply standard string formatting
-                interpolatedText = onLogEvent == null ? string.Format(interpolatedText, args) : onLogEvent.Invoke(interpolatedText, args);
+                interpolatedText = onFormatEvent == null ? string.Format(interpolatedText, args) : onFormatEvent.Invoke(interpolatedText, args);
 
                 // Restore the protected color markup
                 interpolatedText = RestoreColorMarkup(interpolatedText);
@@ -282,7 +282,7 @@ namespace Colorful
         private static string LogHex(object message, string hexColor, Action<object> doLog, params object[] parameters)
         {
             string log = string.Empty;
-            if (onLogEvent != null)
+            if (onFormatEvent != null)
             {
                 log = HandleStringBuilderEvent(message, hexColor, parameters);
             }
@@ -300,7 +300,7 @@ namespace Colorful
             if (stringBuilderAppendEvent != null)
             {
                 string sb = stringBuilderAppendEvent.Invoke("<color=#", hexColor, ">", message, "</color>", parameters.Length == 0 || parameters == null ? "" : parameters);
-                log = onLogEvent.Invoke(sb, parameters);
+                log = onFormatEvent.Invoke(sb, parameters);
             }
             else
             {
@@ -310,7 +310,7 @@ namespace Colorful
                 stringBuilder.Append(">");
                 stringBuilder.Append(message);
                 stringBuilder.Append("</color>");
-                log = onLogEvent.Invoke(stringBuilder.ToString(), parameters.Length == 0 || parameters == null ? "" : parameters);
+                log = onFormatEvent.Invoke(stringBuilder.ToString(), parameters.Length == 0 || parameters == null ? "" : parameters);
             }
 
             return log;

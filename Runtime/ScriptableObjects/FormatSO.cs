@@ -4,6 +4,6 @@ namespace Colorful.ScriptableObjects
 {
     public abstract class FormatSO : ScriptableObject
     {
-        public abstract Debug.FormatDelegate GetFormat();
+        public abstract string GetFormat(string message, params object[] parameters);
     }
 }
