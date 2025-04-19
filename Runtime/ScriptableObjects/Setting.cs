@@ -11,15 +11,15 @@ namespace Colorful.ScriptableObjects
 
         [Header("Debug Log Settings")]
         [SerializeField]
-        [Tooltip("Enable debug log on developer mode.")]
+        [Tooltip("Enable debug log on developer mode.\nDisable this will not log anything on editor")]
         private bool _isDebugLogEnableOnDevMode = true;
 
         [SerializeField]
-        [Tooltip("Enable debug log on product mode.")]
+        [Tooltip("Enable debug log on product mode.\nDisable this will not log anything on runtime")]
         private bool _isDebugLogEnableOnProductMode = false;
 
         [SerializeField]
-        [Tooltip("Enable debug log on editor mode.")]
+        [Tooltip("Enable this will log how many bytes and times are used for each log")]
         private bool _isTestingDebugMode = false;
 
 
