@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEditor;
 using System.Linq;
+using UnityEngine.UI;
 
 namespace Colorful.ScriptableObjects.Editor
 {
@@ -42,7 +43,99 @@ namespace Colorful.ScriptableObjects.Editor
                 {
                     EditorUtility.SetDirty(target);
                 }
+
+                EditorGUILayout.LabelField("TEST CASES", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("--MULTI COLOR--", EditorStyles.miniLabel);
+                if (GUILayout.Button("Test Call Multicolor"))
+                {
+                    Debug.LogMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+                }
+
+                if (GUILayout.Button("Test Error Call Multicolor"))
+                {
+                    Debug.LogErrorMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+                }
+
+                if (GUILayout.Button("Test Warning Call Multicolor"))
+                {
+                    Debug.LogWarningMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+                }
+
+                if (GUILayout.Button("Test $ Call Multicolor"))
+                {
+                    int adaw = 1;
+                    int adaw2 = 2;
+                    Debug.LogMultiColor($"[#ffffff: Test Call {adaw}] [#ff0000: Test Call {adaw2}] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+                }
+
+                if (GUILayout.Button("Test Format Call Multicolor"))
+                {
+                    int adaw = 1;
+                    int adaw2 = 2;
+                    Debug.LogMultiColor(string.Format("[#ffffff: Test Call {0}] [#ff0000: Test Call {1}]  [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]", adaw, adaw2));
+                }
+
+                EditorGUILayout.LabelField("--SINGLE COLOR--", EditorStyles.miniLabel);
+                if (GUILayout.Button("Test Call Hex Single Color"))
+                {
+                    Debug.Log("Hi motherfucker", "#91FF83FF");
+                }
+
+                if (GUILayout.Button("Test Call Error Hex Single Color"))
+                {
+                    Debug.LogError("Hi motherfucker");
+                }
+
+                if (GUILayout.Button("Test Call Warning Hex Single Color"))
+                {
+                    Debug.LogWarning("Hi motherfucker");
+                }
+
+                if (GUILayout.Button("Test $ Call Hex Single Color"))
+                {
+                    int adaw = 1;
+                    int adaw2 = 2;
+                    Debug.Log($"Hi motherfucker {adaw}, {adaw2}", "#83FFF5FF");
+                }
+
+                if (GUILayout.Button("Test Format Call Hex Single Color"))
+                {
+                    int adaw = 1;
+                    int adaw2 = 2;
+                    Debug.Log(string.Format("Hi motherfucker {0}, {1}", adaw, adaw2), "#C783FFFF");
+                }
+
+                if (GUILayout.Button("Test Call Color Single Color"))
+                {
+                    Debug.Log("Hi motherfucker", new Color(0.000f, 1.000f, 0.533f, 1.000f));
+                }
+
+                if (GUILayout.Button("Test $ Call Color Single Color"))
+                {
+                    int adaw = 1;
+                    int adaw2 = 2;
+                    Debug.Log($"Hi motherfucker {adaw}, {adaw2}", Color.cyan);
+                }
+
+                if (GUILayout.Button("Test Format Call Color Single Color"))
+                {
+                    int adaw = 1;
+                    int adaw2 = 2;
+                    Debug.Log(string.Format("Hi motherfucker {0}, {1}", adaw, adaw2), Color.magenta);
+                }
             }
+        }
+        
+        [InitializeOnLoadMethod]
+        private static void OnEditorStart()
+        {
+            EditorApplication.quitting += OnEditorQuitting;
+        }
+
+        private static void OnEditorQuitting()
+        {
+            // Unsubscribe from events when editor is quitting
+            EditorApplication.delayCall -= CheckAndCreateSettingsAsset;
         }
 
         private static void CheckAndCreateSettingsAsset()
@@ -74,7 +167,7 @@ namespace Colorful.ScriptableObjects.Editor
                 AssetDatabase.CreateAsset(settingsAsset, fullAssetPath);
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
-                Debug.LogHex("Created ColorfulLog settings asset at " + fullAssetPath);
+                Debug.Log("Created ColorfulLog settings asset at " + fullAssetPath);
             }
         }
 
@@ -131,18 +224,6 @@ namespace Colorful.ScriptableObjects.Editor
                     .ToArray();
             }
             return true;
-        }
-
-        private void OnEnable()
-        {
-            // This code runs when the editor starts or scripts are recompiled
-            Debug.LogHex("UnitTest initialized in editor. This runs whenever the editor starts or scripts are recompiled.");
-            EditorApplication.update += OnEditorUpdate;
-        }
-
-        private static void OnEditorUpdate()
-        {
-            // This code runs every editor frame
         }
     }
 }

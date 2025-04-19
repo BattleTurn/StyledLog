@@ -19,12 +19,8 @@ namespace Colorful.ScriptableObjects
         private bool _isDebugLogEnableOnProductMode = false;
 
         [SerializeField]
-        [Tooltip("ScriptableObject for format settings.")]
-        private FormatSO _formatSO = null;
-
-        [SerializeField]
-        [Tooltip("ScriptableObject for string builder settings.")]
-        private StringBuilderSO _stringBuilderSO = null;
+        [Tooltip("Enable debug log on editor mode.")]
+        private bool _isTestingDebugMode = false;
 
 
         public static Setting Instance
@@ -61,6 +57,19 @@ namespace Colorful.ScriptableObjects
             }
         }
 
+        public static bool IsTestingDebugMode
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    return false; // Default to false if instance is not found
+                }
+
+                return Instance._isTestingDebugMode;
+            }
+        }
+
         private void Awake()
         {
             _instance = this;
@@ -69,13 +78,6 @@ namespace Colorful.ScriptableObjects
         private void OnEnable()
         {
             _instance = this;
-        }
-
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        private static void OnRuntimeStart()
-        {
-            Debug.onFormatEvent += _instance._formatSO.GetFormat;
-            Debug.stringBuilderAppendEvent += _instance._stringBuilderSO.GetStringBuilderAppends;
         }
     }
 }
