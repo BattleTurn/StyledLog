@@ -1,10 +1,22 @@
 # Colorful Log
 
-🎨 **Colorful Log** is a utility that enables logging messages with custom colors in the **Unity Console**. It helps you easily distinguish different log types while debugging.  
+🎨 **Colorful Log** is a utility that enables logging messages with custom colors in the **Unity Console**. It helps you easily distinguish different log types while debugging.
+The original **Unity Console** has a long format for coloring debugs, which requires repeating <color></color> tags when using multiple colors.
+
+**Examples:**
+
+***Unity Engine***
+```
+UnityEngine.Debug.Log("<color=#ffffff> Test Call</color> <color=#ff0000> Test Call</color> <color=#00ff00> Test Call</color>");
+``` 
+***Colorful Log***
+```
+Colorful.Debug.Log("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call]");
+```
 
 ## 🚀 Features  
-✅ Log messages with customizable colors using **Hex** or **RGB**  
-✅ Supports `onLogEvent` for custom log formatting  
+✅ Log messages with customizable colors using **Hex** or **RGB**
+
 ✅ Easy integration with Unity  
 
 ## 📦 Installation  
@@ -31,29 +43,22 @@ using Debug = Colorful.Debug;
 Debug.Log("Info message", new Color(0, 1, 0)); // Logs in green
 ```
 
-3️⃣ Customize Log Formatting
-
-```using Debug = Colorful.Debug;
-
-Debug.onLogEvent += (message, parameters) => string.Format(message, parameters);
-
-Debug.Log("Custom format!", "00FFFF");
-```
-
-4️⃣ Customize with StringBuilder
+3️⃣ Log with multi Hex color
 
 ```
 using Debug = Colorful.Debug;
 
-private string AppendByStringBuilder(params object[] parameters)
-{
-    var sb = new StringBuilder();
-    foreach (var parameter in parameters)
-    {
-        sb.Append(parameter);
-    }
-    return sb.ToString();
-}
-```
+Debug.LogMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
 
-```Debug.onStringBuilderAppendEvent += AppendByStringBuilder;```
+Debug.LogWarningMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+
+//Even using in formats.
+
+int adaw = 1;
+int adaw2 = 2;
+
+Debug.LogMultiColor($"[#ffffff: Test Call {adaw}] [#ff0000: Test Call {adaw2}] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+
+Debug.LogMultiColor(string.Format("[#ffffff: Test Call {0}] [#ff0000: Test Call {1}]  [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]", adaw, adaw2));
+
+```

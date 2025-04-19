@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEditor;
 using System.Linq;
 using UnityEngine.UI;
+using System;
 
 namespace Colorful.ScriptableObjects.Editor
 {
@@ -45,20 +46,29 @@ namespace Colorful.ScriptableObjects.Editor
                 }
 
                 EditorGUILayout.LabelField("TEST CASES", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("--MULTI COLOR--", EditorStyles.miniLabel);
-                if (GUILayout.Button("Test Call Multicolor"))
+                EditorGUILayout.LabelField("--Unity Engine Log--", EditorStyles.miniLabel);
+                if (GUILayout.Button("Test Call Original UnityEngine Log"))
                 {
-                    Debug.LogMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+                    DebugBeforeRun(out float timeStart, out long beforeMemory);
+                    UnityEngine.Debug.Log("<color=#ffffff> Test Call</color> <color=#ff0000> Test Call</color> <color=#00ff00> Test Call</color>");
+                    DebugAfterRun(timeStart, beforeMemory);
                 }
 
-                if (GUILayout.Button("Test Error Call Multicolor"))
+                EditorGUILayout.LabelField("--MULTI COLOR--", EditorStyles.miniLabel);
+
+                if (GUILayout.Button("Test Call Multicolor"))
                 {
-                    Debug.LogErrorMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+                    Debug.LogMultiColor("[#ffffff: Test Call] asdwf [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
                 }
 
                 if (GUILayout.Button("Test Warning Call Multicolor"))
                 {
                     Debug.LogWarningMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+                }
+
+                if (GUILayout.Button("Test Error Call Multicolor"))
+                {
+                    Debug.LogErrorMultiColor("[#ffffff: Test Call] [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
                 }
 
                 if (GUILayout.Button("Test $ Call Multicolor"))
@@ -220,10 +230,39 @@ namespace Colorful.ScriptableObjects.Editor
                     .Select(AssetDatabase.GUIDToAssetPath)
                     .Select(AssetDatabase.LoadAssetAtPath<Setting>)
                     .Where(s => s != null)
-                    .Cast<Object>()
+                    .Cast<UnityEngine.Object>()
                     .ToArray();
             }
             return true;
+        }
+
+        private void DebugBeforeRun(out float timeStart, out long beforeMemory)
+        {
+            timeStart = 0;
+            beforeMemory = 0;
+            if (Setting.IsTestingDebugMode)
+            {
+                beforeMemory = GC.GetTotalMemory(false);
+                timeStart = Time.realtimeSinceStartup;
+            }
+        }
+
+        private void DebugAfterRun(float timeStart, long beforeMemory)
+        {
+            if (Setting.IsTestingDebugMode)
+            {
+                float timeEnd = Time.realtimeSinceStartup;
+                float timeElapsed = timeEnd - timeStart;
+
+
+                long afterMemory = GC.GetTotalMemory(false);
+                long memoryUsed = afterMemory - beforeMemory;
+
+                // Convert bytes to KB for more readable output
+                float memoryUsedKB = memoryUsed / 1024f;
+                UnityEngine.Debug.Log($"Memory used: {memoryUsedKB:F2} KB");
+                UnityEngine.Debug.Log($"Time taken process: {timeElapsed} seconds");
+            }
         }
     }
 }
