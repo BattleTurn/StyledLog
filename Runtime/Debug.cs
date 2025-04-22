@@ -161,7 +161,8 @@ namespace Colorful
         /// <param name="text">Text with color markup [#RRGGBB:colored text]</param>
         private static string ProtectColorMarkup(string text)
         {
-            return Regex.Replace(text, @"\{#([0-9A-Fa-f]{6}):([^{}]*)\}", "<<COLOR:$1>>$2<<END>>");
+            // Update pattern to match both 6-character (RRGGBB) and 8-character (RRGGBBAA) hex colors
+            return Regex.Replace(text, @"\{#([0-9A-Fa-f]{6,8}):([^{}]*)\}", "<<COLOR:$1>>$2<<END>>");
         }
 
         /// <summary>
@@ -170,7 +171,7 @@ namespace Colorful
         /// <param name="text">Text with color markup [#RRGGBB:colored text]</param>
         private static string RestoreColorMarkup(string text)
         {
-            return Regex.Replace(text, @"<<COLOR:([0-9A-Fa-f]{6})>>([^<]*)<<END>>", "{#$1:$2}");
+            return Regex.Replace(text, @"<<COLOR:([0-9A-Fa-f]{6,8})>>([^<]*)<<END>>", "{#$1:$2}");
         }
 
         /// <summary>
