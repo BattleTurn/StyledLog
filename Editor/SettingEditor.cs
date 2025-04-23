@@ -50,7 +50,7 @@ namespace Colorful.ScriptableObjects.Editor
                 if (GUILayout.Button("Test Call Original UnityEngine Log"))
                 {
                     DebugBeforeRun(out float timeStart, out long beforeMemory);
-                    UnityEngine.Debug.Log("<color=#ffffff> Test Call</color> <color=#ff0000> Test Call</color> <color=#00ff00> Test Call</color>");
+                    UnityEngine.Debug.Log("<color=#8B5F5F60> Test Call</color> <color=#ff0000ff> Test Call</color> <color=#00ff00> Test Call</color>");
                     DebugAfterRun(timeStart, beforeMemory);
                 }
 
@@ -58,7 +58,7 @@ namespace Colorful.ScriptableObjects.Editor
 
                 if (GUILayout.Button("Test Call Multicolor"))
                 {
-                    Debug.LogMultiColor("[#ffffff: Test Call] asdwf [#ff0000: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
+                    Debug.LogMultiColor("[#F37D7D60: Test Call] asdwf [#ff0000ff: Test Call] [#00ff00: Test Call] [#0000ff: Test Call] [#ffff00: Test Call] [#ff00ff: Test Call] [#00ffff: Test Call]");
                 }
 
                 if (GUILayout.Button("Test Warning Call Multicolor"))

@@ -187,7 +187,7 @@ namespace Colorful
                 return string.Empty;
             }
             // Match pattern [#RRGGBB:text] and replace with <color=#RRGGBB>text</color>
-            string pattern = @"\[#([0-9A-Fa-f]{6}):([^\[\]]*)\]";
+            string pattern = @"\[#([0-9A-Fa-f]{6,8}):([^\[\]]*)\]";
 
             string finalLog = string.Empty;
 
