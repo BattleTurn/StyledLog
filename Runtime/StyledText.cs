@@ -66,5 +66,22 @@ namespace BattleTurn.StyledLog
 
             return sb.ToString();
         }
+
+        public string ToRichText(bool includeFontTag)
+        {
+            var sb = new StringBuilder();
+            if (includeFontTag && !string.IsNullOrEmpty(font)) sb.Append($"<font=\"{font}\">");
+            if (!string.IsNullOrEmpty(hexColor)) sb.Append($"<color={hexColor}>");
+            if (style.HasFlag(TextStyle.Bold)) sb.Append("<b>");
+            if (style.HasFlag(TextStyle.Underline)) sb.Append("<u>");
+            if (style.HasFlag(TextStyle.Strikethrough)) sb.Append("<s>");
+            sb.Append(text);
+            if (style.HasFlag(TextStyle.Strikethrough)) sb.Append("</s>");
+            if (style.HasFlag(TextStyle.Underline)) sb.Append("</u>");
+            if (style.HasFlag(TextStyle.Bold)) sb.Append("</b>");
+            if (!string.IsNullOrEmpty(hexColor)) sb.Append("</color>");
+            if (includeFontTag && !string.IsNullOrEmpty(font)) sb.Append("</font>");
+            return sb.ToString();
+        }
     }
 }

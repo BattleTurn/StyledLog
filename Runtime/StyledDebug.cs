@@ -1,11 +1,18 @@
-using System.Text;
+using System.Diagnostics;
 using UnityEngine;
+
+using Debug = UnityEngine.Debug;
 
 namespace BattleTurn.StyledLog
 {
     public static class StyledDebug
     {
         private static StyledLogManager _styledLogManager;
+
+        /// <summary>
+        /// Emitted when a styled log is generated. First parameter is the tag, second is the rich text, third is the log type, fourth is the stack trace.
+        /// </summary>
+        public static event System.Action<string, string, LogType, string> onEmit;
 
         public static StyledLogManager StyledLogManager
         {
@@ -52,11 +59,7 @@ namespace BattleTurn.StyledLog
 
         private static void LogInternal(System.Action<object> logAction, string tag, string message)
         {
-            var style = StyledLogManager[tag];
-            if (style != null && !style.Enabled) return;
-
-            var styled = style != null ? new StyledText(message, style) : new StyledText(message);
-            logAction(styled.ToString());
+            LogInternal(logAction, tag, new StyledText(message, StyledLogManager[tag]));
         }
 
         private static void LogInternal(System.Action<object> logAction, string tag, params StyledText[] parts)
@@ -64,13 +67,29 @@ namespace BattleTurn.StyledLog
             var style = StyledLogManager[tag];
             if (style != null && !style.Enabled) return;
 
-            var sb = new StringBuilder();
-            foreach (var part in parts)
+            var sbConsole = new System.Text.StringBuilder();
+            var sbRich = new System.Text.StringBuilder();
+
+            foreach (var p in parts)
             {
-                sb.Append(part.ToString());
+                sbConsole.Append(p.ToRichText(includeFontTag: false)); // Console-safe: no <font>
+                sbRich.Append(p.ToRichText(includeFontTag: true));     // Full rich for custom sinks (TMP/UI)
             }
 
-            logAction(sb.ToString());
+            var msgConsole = sbConsole.ToString();
+            var msgRich = sbRich.ToString();
+
+            logAction(msgConsole);
+
+            // Determine log type
+            var type = (logAction == Debug.LogError) ? LogType.Error
+                     : (logAction == Debug.LogWarning) ? LogType.Warning
+                     : LogType.Log;
+
+            // Capture stack trace (skip 2 frames: this method + caller wrapper)
+            var st = new StackTrace(skipFrames: 2, fNeedFileInfo: true).ToString();
+
+            onEmit?.Invoke(tag, msgRich, type, st);
         }
     }
 }
