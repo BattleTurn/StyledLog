@@ -17,5 +17,8 @@
     "type": "git",
     "url": "https://github.com/tindvor239/colorful-log"
   },
-  "hideInEditor": false
+  "hideInEditor": false,
+  "dependencies": {
+    "com.unity.textmeshpro": "3.0.6"
+  }
 }
