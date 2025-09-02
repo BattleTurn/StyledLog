@@ -51,11 +51,11 @@ namespace BattleTurn.StyledLog.Editor
 
         // notified when storage cleared (to update any open windows)
         internal static event System.Action Cleared;
-    internal static void RaiseCleared() { Cleared?.Invoke(); }
+        internal static void RaiseCleared() { Cleared?.Invoke(); }
 
-    // session-state keys for snapshot across domain reload
-    private const string SessionKey_Snapshot = "StyledConsole.Snapshot";
-    private const string SessionKey_HasSnapshot = "StyledConsole.HasSnapshot";
+        // session-state keys for snapshot across domain reload
+        private const string SessionKey_Snapshot = "StyledConsole.Snapshot";
+        private const string SessionKey_HasSnapshot = "StyledConsole.HasSnapshot";
 
         // load prefs lazily to avoid calling EditorPrefs during ScriptableObject construction
         internal static void EnsurePrefsLoaded()
@@ -103,6 +103,11 @@ namespace BattleTurn.StyledLog.Editor
         private float _stackFrac = 0.38f;          // 0..1 (bottom pane height / content height)
         private const float _minStackH = 80f;
         private const float _minListH = 80f;
+
+        // tooltip state to avoid flicker
+        private string _ttAbsPath;
+        private int _ttLine;
+        private Rect _ttGuiRect;
 
         [MenuItem("Tools/StyledDebug/Styled Console")]
         public static void Open()
@@ -618,6 +623,7 @@ namespace BattleTurn.StyledLog.Editor
             int lineH = 18;
             var contentRect = new Rect(0, 0, viewRect.width - 16f, Mathf.Max(listH, frames.Count * lineH));
             _scrollStack = GUI.BeginScrollView(viewRect, _scrollStack, contentRect);
+            bool hoveringAny = false;
 
             if (frames.Count == 0)
             {
@@ -659,7 +665,21 @@ namespace BattleTurn.StyledLog.Editor
                         var postRect = new Rect(linkRect.xMax, row.y, 12f, row.height);
                         GUI.Label(postRect, ")", baseStyle);
 
-                        if (Event.current.type == EventType.MouseDown && linkRect.Contains(Event.current.mousePosition))
+                        bool hover = linkRect.Contains(Event.current.mousePosition);
+                        if (hover)
+                        {
+                            hoveringAny = true;
+                            var abs = NormalizeToAbsolutePath(f.path);
+                            // Keep target id (path:line) to avoid reloads; always call Show to maintain position
+                            if (_ttAbsPath != abs || _ttLine != f.line)
+                            {
+                                _ttAbsPath = abs; _ttLine = f.line;
+                            }
+                            _ttGuiRect = linkRect;
+                            BattleTurn.StyledLog.Editor.ConsoleCodeTooltip.Show(linkRect, this, abs, Mathf.Max(1, f.line));
+                        }
+
+                        if (Event.current.type == EventType.MouseDown && hover)
                         {
                             OpenFrame(f);
                             Event.current.Use();
@@ -673,14 +693,21 @@ namespace BattleTurn.StyledLog.Editor
                 }
             }
             GUI.EndScrollView();
+
+            // hide tooltip when not hovering any link
+            if (!hoveringAny && Event.current.type == EventType.Repaint)
+            {
+                _ttAbsPath = null; _ttLine = 0; _ttGuiRect = Rect.zero;
+                BattleTurn.StyledLog.Editor.ConsoleCodeTooltip.HideIfOwner(this);
+            }
         }
 
         // ─────────────────────────────────────────────────────────────────────────────
         // Stack parsing and navigation
 
-    private static readonly Regex s_rxIn = new Regex(@"^\s*at\s+(.*?)\s+in\s+(.+?):line\s+(\d+)", RegexOptions.Compiled);
-    private static readonly Regex s_rxIn2 = new Regex(@"^\s*at\s+(.*?)\s+(?:\[[^\]]*\]\s+)?in\s+(.+?):(\d+)", RegexOptions.Compiled);
-    private static readonly Regex s_rxAt = new Regex(@"^\s*(.*?)\s+\(at\s+(.+?):(\d+)\)", RegexOptions.Compiled);
+        private static readonly Regex s_rxIn = new Regex(@"^\s*at\s+(.*?)\s+in\s+(.+?):line\s+(\d+)", RegexOptions.Compiled);
+        private static readonly Regex s_rxIn2 = new Regex(@"^\s*at\s+(.*?)\s+(?:\[[^\]]*\]\s+)?in\s+(.+?):(\d+)", RegexOptions.Compiled);
+        private static readonly Regex s_rxAt = new Regex(@"^\s*(.*?)\s+\(at\s+(.+?):(\d+)\)", RegexOptions.Compiled);
 
         private class Frame
         {
@@ -857,7 +884,7 @@ namespace BattleTurn.StyledLog.Editor
 
         private static void ComputeCounts(out int logs, out int warns, out int errors)
         {
-            int l= 0, w = 0, e = 0;
+            int l = 0, w = 0, e = 0;
             for (int i = 0; i < _all.Count; i++)
             {
                 var t = _all[i].type;
