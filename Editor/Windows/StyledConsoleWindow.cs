@@ -670,13 +670,17 @@ namespace BattleTurn.StyledLog.Editor
                         {
                             hoveringAny = true;
                             var abs = NormalizeToAbsolutePath(f.path);
-                            // Keep target id (path:line) to avoid reloads; always call Show to maintain position
                             if (_ttAbsPath != abs || _ttLine != f.line)
                             {
                                 _ttAbsPath = abs; _ttLine = f.line;
                             }
                             _ttGuiRect = linkRect;
-                            BattleTurn.StyledLog.Editor.ConsoleCodeTooltip.Show(linkRect, this, abs, Mathf.Max(1, f.line));
+
+                            Vector2 rectPos = postRect.position;
+                            rectPos.x -= 1; // Adjust for tooltip to left (for hover into tooltip hand preview code).
+                            Vector2 linkScreenPoint = GUIUtility.GUIToScreenPoint(rectPos);
+                            linkScreenPoint.y -= ConsoleCodeTooltip.MaxHeight / 2; // nudge above link
+                            ConsoleCodeTooltip.ShowAtScreenRect(linkScreenPoint, this, abs, Mathf.Max(1, f.line));
                         }
 
                         if (Event.current.type == EventType.MouseDown && hover)
@@ -698,7 +702,7 @@ namespace BattleTurn.StyledLog.Editor
             if (!hoveringAny && Event.current.type == EventType.Repaint)
             {
                 _ttAbsPath = null; _ttLine = 0; _ttGuiRect = Rect.zero;
-                BattleTurn.StyledLog.Editor.ConsoleCodeTooltip.HideIfOwner(this);
+                ConsoleCodeTooltip.HideIfOwner(this);
             }
         }
 
@@ -959,16 +963,6 @@ namespace BattleTurn.StyledLog.Editor
                     StyledConsoleWindow.RaiseCleared();
                 }
             }
-        }
-    }
-
-    // helpers
-    internal static partial class StyledConsoleWindowExtensions
-    {
-        internal static void TogglePref(string key, ref bool field)
-        {
-            field = !field;
-            EditorPrefs.SetBool(key, field);
         }
     }
 }

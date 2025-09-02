@@ -11,30 +11,25 @@ namespace BattleTurn.StyledLog.Editor
     internal sealed class ConsoleCodeTooltip : EditorWindow
     {
         private static ConsoleCodeTooltip s_win;
+        private static readonly string TypeFullName = typeof(ConsoleCodeTooltip).FullName;
+
+        internal const int MaxWidth = 720;
+        internal const int MaxHeight = 260;
 
         private string _absPath;
         private int _line = 1; // 1-based
         private string[] _fileLines = Array.Empty<string>();
         private Vector2 _scroll;
-        private Rect _anchorScreenRect;
         private EditorWindow _owner;
         private string _cacheKey;
 
         private const int ContextBefore = 6;
         private const int ContextAfter = 8;
-        private const int MaxWidth = 720;
-        private const int MaxHeight = 260;
 
-        public static void Show(Rect guiRect, EditorWindow owner, string absolutePath, int line)
+        // Overload that accepts a screen-space rectangle for precise anchoring near the cursor/link
+        public static void ShowAtScreenRect(Vector2 screenPoint, EditorWindow owner, string absolutePath, int line)
         {
             if (string.IsNullOrEmpty(absolutePath) || line <= 0) return;
-
-            // Convert both corners to screen space (account for DPI scaling)
-            float pp = Mathf.Max(1f, EditorGUIUtility.pixelsPerPoint);
-            var topLeft = GUIUtility.GUIToScreenPoint(new Vector2(guiRect.xMin, guiRect.yMin)) / pp;
-            var bottomRight = GUIUtility.GUIToScreenPoint(new Vector2(guiRect.xMax, guiRect.yMax)) / pp;
-            var anchor = Rect.MinMaxRect(Mathf.Floor(topLeft.x), Mathf.Floor(topLeft.y), Mathf.Floor(bottomRight.x), Mathf.Floor(bottomRight.y));
-            var desired = PlaceNearAnchor(anchor, new Vector2(MaxWidth, MaxHeight));
 
             string key = absolutePath + ":" + line;
             string prevKey = s_win != null ? s_win._cacheKey : null;
@@ -47,7 +42,9 @@ namespace BattleTurn.StyledLog.Editor
                 s_win.hideFlags = HideFlags.DontSave;
             }
 
-            // If an existing tooltip belongs to another owner and we're about to show for this owner, close it first
+            // Always enforce single instance across domain reloads/assemblies
+            CloseDuplicateWindows(except: s_win);
+
             if (needShowPopup && s_win != null && s_win._owner != null && s_win._owner != owner)
             {
                 try { s_win.Close(); } catch { }
@@ -57,23 +54,36 @@ namespace BattleTurn.StyledLog.Editor
             }
 
             s_win._owner = owner;
-            s_win._anchorScreenRect = anchor;
-            // Only (re)load when target changed
             if (s_win._cacheKey != key)
             {
                 s_win.Load(absolutePath, line);
             }
 
-            // Fit to screen bounds
-            var pos = s_win.FitToScreen(desired);
-            s_win.position = pos;
-            // Show popup when first created or when target changes; keep it topmost
+            s_win.position = new Rect(screenPoint.x, screenPoint.y, MaxWidth, MaxHeight);
             if (needShowPopup)
             {
                 s_win.ShowPopup();
                 s_win.Focus();
             }
             s_win.Repaint();
+        }
+
+        private static void CloseDuplicateWindows(EditorWindow except)
+        {
+            try
+            {
+                var all = Resources.FindObjectsOfTypeAll<EditorWindow>();
+                for (int i = 0; i < all.Length; i++)
+                {
+                    var w = all[i];
+                    if (w == null || w == except) continue;
+                    if (w.GetType() != null && w.GetType().FullName == TypeFullName)
+                    {
+                        try { w.Close(); } catch { }
+                    }
+                }
+            }
+            catch { }
         }
 
         public static void HideIfOwner(EditorWindow owner)
@@ -110,17 +120,9 @@ namespace BattleTurn.StyledLog.Editor
             }
         }
 
-        private Rect FitToScreen(Rect desired)
-        {
-            var disp = GetMainDisplayRect();
-            float x = Mathf.Clamp(desired.x, disp.xMin + 4, disp.xMax - desired.width - 4);
-            float y = Mathf.Clamp(desired.y, disp.yMin + 4, disp.yMax - desired.height - 4);
-            return new Rect(x, y, desired.width, desired.height);
-        }
-
         private static Rect GetMainDisplayRect()
         {
-            // Fallback to current display size
+            // Fallback to current display size (convert to points to match EditorWindow.position)
             float pp = Mathf.Max(1f, EditorGUIUtility.pixelsPerPoint);
             float w = (Display.main != null ? Display.main.systemWidth : Screen.currentResolution.width) / pp;
             float h = (Display.main != null ? Display.main.systemHeight : Screen.currentResolution.height) / pp;
@@ -195,40 +197,6 @@ namespace BattleTurn.StyledLog.Editor
         private void Update()
         {
             // Owner controls show/hide to prevent flicker; no auto-close here.
-        }
-
-        // Decide a position that doesn't cover the link and stays on-screen
-        private static Rect PlaceNearAnchor(Rect anchor, Vector2 size)
-        {
-            var screen = GetMainDisplayRect();
-            // Try below the anchor
-            var below = new Rect(anchor.xMin, anchor.yMax + 6f, size.x, size.y);
-            if (!below.Overlaps(anchor))
-            {
-                below = FitToScreenStatic(below, screen);
-                if (!below.Overlaps(anchor)) return below;
-            }
-            // Try above
-            var above = new Rect(anchor.xMin, anchor.yMin - size.y - 6f, size.x, size.y);
-            above = FitToScreenStatic(above, screen);
-            if (!above.Overlaps(anchor)) return above;
-
-            // Try to the right
-            var right = new Rect(anchor.xMax + 6f, anchor.yMin, size.x, size.y);
-            right = FitToScreenStatic(right, screen);
-            if (!right.Overlaps(anchor)) return right;
-
-            // Finally to the left
-            var left = new Rect(anchor.xMin - size.x - 6f, anchor.yMin, size.x, size.y);
-            left = FitToScreenStatic(left, screen);
-            return left;
-        }
-
-        private static Rect FitToScreenStatic(Rect desired, Rect screen)
-        {
-            float x = Mathf.Clamp(desired.x, screen.xMin + 4, screen.xMax - desired.width - 4);
-            float y = Mathf.Clamp(desired.y, screen.yMin + 4, screen.yMax - desired.height - 4);
-            return new Rect(x, y, desired.width, desired.height);
         }
 
         private static string ToUnityPath(string abs)
