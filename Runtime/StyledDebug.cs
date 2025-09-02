@@ -14,6 +14,16 @@ namespace BattleTurn.StyledLog
         /// </summary>
         public static event System.Action<string, string, LogType, string> onEmit;
 
+        /// <summary>
+        /// Debug method to check if there are any subscribers to the onEmit event
+        /// </summary>
+        public static bool HasOnEmitSubscribers => onEmit != null;
+
+        /// <summary>
+        /// Debug method to get the number of subscribers to the onEmit event
+        /// </summary>
+        public static int OnEmitSubscriberCount => onEmit?.GetInvocationList()?.Length ?? 0;
+
         public static StyledLogManager StyledLogManager
         {
             get
