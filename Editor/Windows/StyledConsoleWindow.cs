@@ -58,8 +58,9 @@ namespace BattleTurn.StyledLog.Editor
         private IList<Entry> ActiveList() => _collapse ? _collapsed : _all;
 
         // scroll states
-        private Vector2 _scrollList;
-        private Vector2 _scrollStack;
+    private Vector2 _scrollList;
+    private Vector2 _scrollStack;
+    private Vector2 _scrollMessage;
 
         // filters
         private bool _showLog = true, _showWarn = true, _showError = true;
@@ -89,6 +90,11 @@ namespace BattleTurn.StyledLog.Editor
         private float _stackFrac = 0.38f;          // 0..1 (bottom pane height / content height)
         private const float _minStackH = 80f;
         private const float _minListH = 80f;
+
+    // inside stack pane: split between message and stacktrace
+    private float _stackMessageFrac = 0.4f;     // fraction of stack pane height used by message view
+    private const float _minMessageH = 40f;
+    private const float _minFramesH = 80f;
 
         // tooltip state to avoid flicker
         private string _ttAbsPath;
@@ -555,16 +561,58 @@ namespace BattleTurn.StyledLog.Editor
             var copyRect = new Rect(toolbarRect.xMax - 60f, toolbarRect.y + 1f, 56f, toolbarRect.height - 2f);
             if (GUI.Button(copyRect, "Copy", EditorStyles.toolbarButton))
             {
-                var e = SelectedEntry();
-                EditorGUIUtility.systemCopyBuffer = e?.stack ?? string.Empty;
+                var stackText = _controller.SelectedStack();
+                EditorGUIUtility.systemCopyBuffer = stackText ?? string.Empty;
             }
+
+            // Message view (above stacktrace) with its own scroll when long
+            // Compute a local split within the stack pane between message and frames
+            float contentTop = toolbarRect.yMax + 4f;
+            float contentBottom = rect.yMax - 4f;
+            float totalH = Mathf.Max(0f, contentBottom - contentTop);
+            float desiredMsgH = Mathf.Clamp(totalH * _stackMessageFrac, _minMessageH, Mathf.Max(_minMessageH, totalH - _minFramesH));
+            var messageRect = new Rect(rect.x + 6f, contentTop, rect.width - 12f, desiredMsgH);
+            GUI.Box(messageRect, GUIContent.none, EditorStyles.helpBox);
+
+            string messageText = string.Empty;
+            if (_controller.GetVisibleCount() > 0 && _controller.SelectedIndex >= 0)
+            {
+                try
+                {
+                    _controller.GetVisibleRow(_controller.SelectedIndex, out _, out _, out var rich, out _, out _, out _);
+                    messageText = rich ?? string.Empty;
+                }
+                catch { /* ignore */ }
+            }
+            var msgInner = new Rect(messageRect.x + 6f, messageRect.y + 4f, messageRect.width - 12f, messageRect.height - 8f);
+            var msgStyle = new GUIStyle(EditorStyles.label) { richText = true, wordWrap = true };
+            float msgContentH = Mathf.Max(18f, msgStyle.CalcHeight(new GUIContent(messageText), msgInner.width - 16f));
+            var msgView = new Rect(msgInner.x, msgInner.y, msgInner.width, msgInner.height);
+            var msgContent = new Rect(0, 0, msgInner.width - 16f, msgContentH + 4f);
+            _scrollMessage = GUI.BeginScrollView(msgView, _scrollMessage, msgContent);
+            GUI.Label(new Rect(0, 0, msgContent.width, msgContentH), messageText, msgStyle);
+            GUI.EndScrollView();
+
+            // Local splitter between message and stacktrace
+            var innerSplitRect = new Rect(rect.x + 2f, messageRect.yMax + 2f, rect.width - 4f, 4f);
+            StyledConsoleEditorGUI.DrawHSplitter(
+                innerSplitRect,
+                dy =>
+                {
+                    // Increase message height when dragging down
+                    float newMsgH = Mathf.Clamp(desiredMsgH + dy, _minMessageH, Mathf.Max(_minMessageH, totalH - _minFramesH));
+                    _stackMessageFrac = totalH > 0 ? newMsgH / totalH : _stackMessageFrac;
+                    Repaint();
+                },
+                null
+            );
 
             // parse frames
             var stack = _controller.SelectedStack();
             var frames = StyledConsoleController.ParseStackFrames(stack);
 
             // callsite summary
-            y = toolbarRect.yMax + 4f;
+            y = innerSplitRect.yMax + 4f;
             var callsite = StyledConsoleController.GetFirstUserFrame(frames);
             var callRect = new Rect(rect.x + 6f, y, rect.width - 12f, 18f);
             if (callsite != null)
