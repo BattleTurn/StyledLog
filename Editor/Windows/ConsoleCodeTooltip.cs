@@ -1,6 +1,3 @@
-// Hover popup to preview source code at a given file:line and highlight that line.
-// Non-focusable popup following the link location.
-
 using System;
 using System.IO;
 using UnityEditor;

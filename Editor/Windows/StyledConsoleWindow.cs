@@ -5,13 +5,13 @@
 // Put this file in an Editor folder.
 
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.Build;
-using UnityEditor.Build.Reporting;
-using UnityEditor.Callbacks;
 using UnityEditorInternal;
+using UnityEditor.Callbacks;
+using UnityEditor.Build.Reporting;
 using UnityEngine;
-using System.Text.RegularExpressions;
 
 namespace BattleTurn.StyledLog.Editor
 {
@@ -107,7 +107,6 @@ namespace BattleTurn.StyledLog.Editor
         // tooltip state to avoid flicker
         private string _ttAbsPath;
         private int _ttLine;
-        private Rect _ttGuiRect;
 
         [MenuItem("Tools/StyledDebug/Styled Console")]
         public static void Open()
@@ -163,7 +162,7 @@ namespace BattleTurn.StyledLog.Editor
             }
 
             // strip <font> tags; IMGUI doesn't render them
-            var msg = StyledConsoleUtil.StripFontTags(richWithFont);
+            var msg = StyledConsoleEditorGUI.StripFontTags(richWithFont);
 
             var e = new Entry
             {
@@ -346,22 +345,6 @@ namespace BattleTurn.StyledLog.Editor
             }
         }
 
-        [System.Serializable]
-        private class SnapshotDTO
-        {
-            public List<EntryDTO> all;
-        }
-
-        [System.Serializable]
-        private struct EntryDTO
-        {
-            public int type;
-            public string tag;
-            public string rich;
-            public string stack;
-            public int count;
-        }
-
         // persist toggle helper
         private static void TogglePref(string key, ref bool field)
         {
@@ -398,7 +381,7 @@ namespace BattleTurn.StyledLog.Editor
 
                 // SPLITTER
                 var splitRect = GUILayoutUtility.GetRect(0, 4f, GUILayout.ExpandWidth(true));
-                StyledConsoleUtil.DrawHSplitter(
+                StyledConsoleEditorGUI.DrawHSplitter(
                     splitRect,
                     dy =>
                     {
@@ -440,7 +423,7 @@ namespace BattleTurn.StyledLog.Editor
 
                 GUILayout.FlexibleSpace();
 
-                _search = StyledConsoleUtil.ToolbarSearch(_search, 180f);
+                _search = StyledConsoleEditorGUI.ToolbarSearch(_search, 180f);
 
                 // Clear
                 if (GUILayout.Button("Clear", EditorStyles.toolbarButton))
@@ -483,14 +466,14 @@ namespace BattleTurn.StyledLog.Editor
                 var rTagRight = new Rect(_colTypeW + _colTagW + _splitW, headerRect.y, _splitW, headerRect.height);
 
                 // type|tag splitter
-                StyledConsoleUtil.DrawVSplitter(
+                StyledConsoleEditorGUI.DrawVSplitter(
                     rTypeRight,
                     dx => { _dragTypeSplit = true; _dragStartX += dx; _colTypeW = Mathf.Max(_minColW, _colTypeW + dx); Repaint(); },
                     () => { _dragTypeSplit = false; }
                 );
 
                 // tag|message splitter
-                StyledConsoleUtil.DrawVSplitter(
+                StyledConsoleEditorGUI.DrawVSplitter(
                     rTagRight,
                     dx => { _dragTagSplit = true; _dragStartX += dx; _colTagW = Mathf.Max(_minColW, _colTagW + dx); Repaint(); },
                     () => { _dragTagSplit = false; }
@@ -560,14 +543,14 @@ namespace BattleTurn.StyledLog.Editor
                 {
                     _selectedIndex = i;
                     Repaint();
-                    if (Event.current.clickCount == 2) StyledConsoleUtil.OpenFirstUserFrame(e.stack);
+                    if (Event.current.clickCount == 2) StyledConsoleEditorGUI.OpenFirstUserFrame(e.stack);
                     Event.current.Use();
                 }
 
                 if (Event.current.type == EventType.ContextClick && rowRect.Contains(Event.current.mousePosition))
                 {
                     var menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("Open Callsite"), false, () => StyledConsoleUtil.OpenFirstUserFrame(e.stack));
+                    menu.AddItem(new GUIContent("Open Callsite"), false, () => StyledConsoleEditorGUI.OpenFirstUserFrame(e.stack));
                     menu.AddItem(new GUIContent("Copy Message"), false, () => EditorGUIUtility.systemCopyBuffer = e.rich ?? "");
                     menu.AddItem(new GUIContent("Copy Stacktrace"), false, () => EditorGUIUtility.systemCopyBuffer = e.stack ?? "");
                     menu.ShowAsContext();
@@ -674,7 +657,6 @@ namespace BattleTurn.StyledLog.Editor
                             {
                                 _ttAbsPath = abs; _ttLine = f.line;
                             }
-                            _ttGuiRect = linkRect;
 
                             Vector2 rectPos = postRect.position;
                             rectPos.x -= 1; // Adjust for tooltip to left (for hover into tooltip hand preview code).
@@ -701,7 +683,7 @@ namespace BattleTurn.StyledLog.Editor
             // hide tooltip when not hovering any link
             if (!hoveringAny && Event.current.type == EventType.Repaint)
             {
-                _ttAbsPath = null; _ttLine = 0; _ttGuiRect = Rect.zero;
+                _ttAbsPath = null; _ttLine = 0;
                 ConsoleCodeTooltip.HideIfOwner(this);
             }
         }
@@ -944,24 +926,6 @@ namespace BattleTurn.StyledLog.Editor
             if (StyledConsoleWindow.ClearOnBuild)
             {
                 StyledConsoleWindow.ClearAllStorage();
-            }
-        }
-    }
-
-    // after scripts reloaded, restore snapshot if any
-    internal static class StyledConsoleReloadHandler
-    {
-        [DidReloadScripts]
-        private static void OnScriptsReloaded()
-        {
-            StyledConsoleWindow.EnsurePrefsLoaded();
-            if (!StyledConsoleWindow.ClearOnRecompile)
-            {
-                if (StyledConsoleWindow.LoadSnapshot())
-                {
-                    // notify any open windows to repaint
-                    StyledConsoleWindow.RaiseCleared();
-                }
             }
         }
     }
