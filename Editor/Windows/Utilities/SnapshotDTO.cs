@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace BattleTurn.StyledLog.Editor
 {
     [Serializable]
-    internal class SnapshotDTO
+    internal sealed class SnapshotDTO
     {
         public List<EntryDTO> all;
     }

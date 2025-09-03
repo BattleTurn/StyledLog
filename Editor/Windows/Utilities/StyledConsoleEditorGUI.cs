@@ -15,13 +15,13 @@ namespace BattleTurn.StyledLog.Editor
         [DidReloadScripts]
         private static void OnScriptsReloaded()
         {
-            StyledConsoleWindow.EnsurePrefsLoaded();
-            if (!StyledConsoleWindow.ClearOnRecompile)
+            StyledConsoleController.EnsurePrefsLoaded();
+            if (!StyledConsoleController.ClearOnRecompile)
             {
-                if (StyledConsoleWindow.LoadSnapshot())
+                if (StyledConsoleController.LoadSnapshot())
                 {
                     // notify any open windows to repaint
-                    StyledConsoleWindow.RaiseCleared();
+                    StyledConsoleController.RaiseCleared();
                 }
             }
         }
@@ -70,6 +70,76 @@ namespace BattleTurn.StyledLog.Editor
             {
                 Debug.LogWarning("No user frame found in stacktrace.");
             }
+        }
+
+        // Shared list renderer that draws all rows and lets controller handle interactions.
+        public static void DrawRows(
+            Rect rect,
+            StyledConsoleController controller,
+            GUIContent iconInfo,
+            GUIContent iconWarn,
+            GUIContent iconError,
+            float colIconW,
+            float colTypeW,
+            float colTagW,
+            bool collapsed,
+            ref Vector2 scroll)
+        {
+            int count = controller.GetVisibleCount();
+            scroll = GUI.BeginScrollView(rect, scroll, new Rect(0, 0, rect.width - 20, count * 22));
+
+            if (count == 0)
+            {
+                GUI.Label(new Rect(10, 10, rect.width - 30, 20), "No logs to show. Check filters or search.", EditorStyles.miniLabel);
+                GUI.EndScrollView();
+                return;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                controller.GetVisibleRow(i, out var type, out var tag, out var rich, out var font, out var rowCount, out var stack);
+                var rowRect = new Rect(0, i * 22, rect.width - 20, 22);
+
+                var bgStyle = (i == controller.SelectedIndex) ? "SelectionRect" : (i % 2 == 0 ? "CN EntryBackOdd" : "CN EntryBackEven");
+                GUI.Box(rowRect, GUIContent.none, bgStyle);
+
+                var iconRect = new Rect(2, rowRect.y + 2, 18, 18);
+                var icon = type == LogType.Error ? iconError : type == LogType.Warning ? iconWarn : iconInfo;
+                if (icon != null && icon.image != null) GUI.DrawTexture(iconRect, icon.image);
+
+                var typeRect = new Rect(colIconW, rowRect.y, colTypeW - colIconW, rowRect.height);
+                GUI.Label(typeRect, type.ToString(), EditorStyles.miniLabel);
+
+                var tagRect = new Rect(colTypeW, rowRect.y, colTagW, rowRect.height);
+                GUI.Label(tagRect, tag, EditorStyles.miniLabel);
+
+                var msgRect = new Rect(colTypeW + colTagW, rowRect.y, rowRect.width - colTypeW - colTagW, rowRect.height);
+                var msgStyle = new GUIStyle(EditorStyles.label) { richText = true, font = font };
+                if (collapsed && rowCount > 1)
+                {
+                    var textRect = new Rect(msgRect.x, msgRect.y, msgRect.width - 32, msgRect.height);
+                    var countRect = new Rect(msgRect.xMax - 32, msgRect.y, 32, msgRect.height);
+                    GUI.Label(textRect, rich, msgStyle);
+                    GUI.Label(countRect, $"x{rowCount}", EditorStyles.miniLabel);
+                }
+                else
+                {
+                    GUI.Label(msgRect, rich, msgStyle);
+                }
+
+                if (Event.current.type == EventType.MouseDown && rowRect.Contains(Event.current.mousePosition))
+                {
+                    controller.HandleRowMouseDown(i, Event.current.clickCount);
+                    Event.current.Use();
+                }
+                if (Event.current.type == EventType.ContextClick && rowRect.Contains(Event.current.mousePosition))
+                {
+                    controller.HandleRowContextMenu(i);
+                    Event.current.Use();
+                }
+            }
+
+            GUI.EndScrollView();
         }
 
         // Thin vertical splitter (with drag handle area).
