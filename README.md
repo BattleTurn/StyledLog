@@ -13,14 +13,20 @@ StyledDebug is a styled logging toolkit for Unity with a custom Styled Console i
   - Menu: Tools > StyledDebug > Styled Console
   - Filters (Log/Warning/Error), Collapse, Auto-scroll, Search
   - Resizable columns: Type, Tag, Message
+  - Tag filter dropdown in header: “Everything” toggle and per-tag flags
+    - “Everything” ON: shows all tags (including new ones); OFF: shows none until you pick tags
+    - Your selections persist per project and reload when opening the dropdown
   - Clickable stack links open code at file:line
   - Code tooltip on hover: anchored near the link, single-instance, no flicker, DPI-aware, with highlighted line
+  - Full message pane above the stack trace (rich text) with its own scrollbar
+  - Draggable splitter between message and stack traces; both sections keep a minimum height so nothing is hidden
   - Clear options persisted: Clear on Play, Clear on Build, Clear on Recompile
   - Snapshot logs across domain reloads when “Clear on Recompile” is off
+  - Captures Unity Editor logs automatically and shows them in Styled Console; Exceptions are normalized to Error
 
 ## Installation
 
-- As a local package: Unity Package Manager > Add package from disk… select `Packages/StyleLog/package.json`
+- As a local package: Unity Package Manager > Add package from disk… select `Packages/colorful-log/package.json`
 - Or add from git if you host it as a UPM repo (path must point to the package folder)
 
 ## Setup
@@ -69,9 +75,17 @@ new StyledText("From setting", s);
 ## Styled Console usage
 
 - Filter by type, toggle Collapse/Auto-scroll, drag splitters to resize columns and the stack pane
+- Use the Tag dropdown in the header to pick which tags are visible
+  - “Everything” shows all tags; toggling individual tags creates an explicit selection set
+  - Your tag selections are remembered per project
 - Click a stack link to open it; hover to see an inline code preview with the target line highlighted
+- Read the full rich-text message in the pane above the stack trace; scroll if it’s long
 - Use the toolbar dropdown to toggle: Clear on Play, Clear on Build, Clear on Recompile
 - When “Clear on Recompile” is off, logs are snapshotted and restored across script recompiles
+
+### Unity logs
+
+Styled Console subscribes to Unity’s `Application.logMessageReceived` in the Editor and mirrors those entries. Messages originating from StyledDebug are not duplicated. Unity `Exception` entries are displayed as `Error` for consistent filtering.
 
 ## Extending (optional)
 
@@ -101,9 +115,8 @@ public static class StyledSink
 
 - Styled Console strips `<font>` for IMGUI but keeps fonts for rich sinks (onEmit)
 - If tooltip placement looks off on unusual DPI setups, recompile/reopen the window
+ - Tag visibility selections are stored in EditorPrefs per project; snapshots of logs (when enabled) are stored in SessionState
 
 ## TODOs
 
-- Capture normal Unity logs (Debug.Log/Warning/Error) into Styled Console
-- Tag selector to view only specific tags
 - Simple UI for build-time debugging (easy to toggle/use)
