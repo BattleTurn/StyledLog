@@ -416,7 +416,9 @@ namespace BattleTurn.StyledLog.Editor
             {
                 GUILayout.Label("", GUILayout.Width(_colIconW)); // icon spacer
                 GUILayout.Label("Type", GUILayout.Width(_colTypeW - _colIconW));
-                GUILayout.Label("Tag", GUILayout.Width(_colTagW));
+                // Tag header and dropdown arrow drawn inside the same column width
+                var tagHeaderRect = GUILayoutUtility.GetRect(_colTagW, 20f, GUILayout.Width(_colTagW - 10));
+                DrawTagDropdown(tagHeaderRect);
                 GUILayout.Label("Message");
 
                 // vertical splitters aligned to window coordinates
@@ -443,6 +445,83 @@ namespace BattleTurn.StyledLog.Editor
                                  new Vector2(headerRect.xMax, headerRect.yMax - 1));
             }
             EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawTagDropdown(Rect rect)
+        {
+            // Draw label and a small dropdown arrow inside the same header cell
+            const float arrowW = 20f;
+            var labelRect = rect; labelRect.xMax = rect.xMax - arrowW;
+            GUI.Label(labelRect, "Tag");
+
+            var arrowRect = new Rect(rect.xMin + arrowW + 8f, rect.y + 2f, arrowW - 2f, rect.height);
+            bool open = false;
+            if (GUI.Button(arrowRect, GUIContent.none, EditorStyles.toolbarDropDown)) open = true;
+            else if (Event.current.type == EventType.MouseDown && rect.Contains(Event.current.mousePosition)) open = true;
+
+            if (!open) return;
+
+            Event.current.Use();
+
+            // Ensure persisted tag selections are loaded at the moment the user opens the dropdown
+            _controller.LoadTagPrefs();
+
+            var menu = new GenericMenu();
+            var mgr = StyledDebug.StyledLogManager;
+            var tags = new List<string>();
+            if (mgr != null)
+            {
+                try { tags = mgr.GetAllTags(); } catch { }
+            }
+            // Always include the special tags we may emit
+            if (!tags.Contains("Unity")) tags.Add("Unity");
+            if (!tags.Contains("default")) tags.Add("default");
+
+            // Everything toggle semantics:
+            // - When Everything is ON and there are no explicit selections, all tags are visible (future tags too)
+            // - Turning OFF Everything sets a mode where no tags are visible until the user selects some
+            bool everythingOn = _controller.HasExplicitTagSelection ? false : _controller.TagEverything;
+            menu.AddItem(new GUIContent("Everything"), everythingOn, () =>
+            {
+                // Toggle Everything
+                _controller.SetEverything(!everythingOn);
+                // Persist
+                _controller.SaveTagPrefs();
+                Repaint();
+            });
+            menu.AddSeparator("");
+
+            // Per-tag flags
+            foreach (var tag in tags)
+            {
+                bool enabled = _controller.GetTagEnabled(tag);
+                menu.AddItem(new GUIContent(tag), enabled, () =>
+                {
+                    // Toggle rules:
+                    // - If we already have explicit selections, just toggle this tag.
+                    // - If Everything is ON and no explicit selections, seed explicit set with all tags and then untick this one.
+                    // - If Everything is OFF and no explicit selections, ticking a tag enables only this tag.
+                    if (_controller.HasExplicitTagSelection)
+                    {
+                        _controller.SetTagEnabled(tag, !enabled);
+                    }
+                    else
+                    {
+                        if (_controller.TagEverything)
+                        {
+                            _controller.EnableAllTags(tags);
+                            _controller.SetTagEnabled(tag, false);
+                        }
+                        else
+                        {
+                            _controller.SetTagEnabled(tag, true);
+                        }
+                    }
+                    _controller.SaveTagPrefs();
+                    Repaint();
+                });
+            }
+            menu.ShowAsContext();
         }
 
         private void DrawRowsAreaLayout(Rect rect)

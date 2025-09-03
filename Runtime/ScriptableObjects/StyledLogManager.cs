@@ -35,6 +35,17 @@ namespace BattleTurn.StyledLog
                 return null;
             }
         }
+
+        /// <summary>
+        /// Returns all available style tags defined in this manager.
+        /// </summary>
+        public List<string> GetAllTags()
+        {
+            // Ensure map is built
+            _ = this["__ensure_build__"];
+            var list = new List<string>(_styleMap.Keys);
+            return list;
+        }
         #endregion
     }
 

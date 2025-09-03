@@ -192,6 +192,68 @@ namespace BattleTurn.StyledLog.Editor
         internal bool Collapse = false;
         internal string Search = string.Empty;
         internal int SelectedIndex = -1;
+        // Tag filter persistence and semantics
+        // - TagEverything: when true and no explicit selections, treat all tags as enabled (including future tags)
+        // - When false and no explicit selections, treat all tags as disabled
+        // - When explicit selections exist, use them regardless of TagEverything
+        internal bool TagEverything = true;
+        // Tag filter set: when non-empty, only rows whose tag is in this set are visible
+        private readonly HashSet<string> _enabledTags = new HashSet<string>();
+    internal bool HasExplicitTagSelection => _enabledTags.Count > 0;
+        internal void SetTagEnabled(string tag, bool enabled)
+        {
+            if (string.IsNullOrEmpty(tag)) return;
+            if (enabled) _enabledTags.Add(tag); else _enabledTags.Remove(tag);
+        }
+        internal bool GetTagEnabled(string tag)
+        {
+            if (string.IsNullOrEmpty(tag)) return true;
+            if (_enabledTags.Count == 0) return TagEverything;
+            return _enabledTags.Contains(tag);
+        }
+        internal void EnableAllTags(IEnumerable<string> tags)
+        {
+            _enabledTags.Clear();
+            foreach (var t in tags) if (!string.IsNullOrEmpty(t)) _enabledTags.Add(t);
+        }
+        internal void ClearTagFilters() => _enabledTags.Clear();
+
+        // Persistence for tag prefs (per project)
+        [System.Serializable]
+        private class TagPrefsDTO { public bool everything = true; public List<string> enabled = new List<string>(); }
+        private static string GetTagPrefsKey() => "StyledConsole.TagPrefs." + Application.dataPath;
+        internal void LoadTagPrefs()
+        {
+            try
+            {
+                var json = EditorPrefs.GetString(GetTagPrefsKey(), string.Empty);
+                if (string.IsNullOrEmpty(json)) { TagEverything = true; _enabledTags.Clear(); return; }
+                var dto = JsonUtility.FromJson<TagPrefsDTO>(json);
+                if (dto == null) { TagEverything = true; _enabledTags.Clear(); return; }
+                TagEverything = dto.everything;
+                _enabledTags.Clear();
+                if (dto.enabled != null)
+                {
+                    foreach (var t in dto.enabled) if (!string.IsNullOrEmpty(t)) _enabledTags.Add(t);
+                }
+            }
+            catch { TagEverything = true; _enabledTags.Clear(); }
+        }
+        internal void SaveTagPrefs()
+        {
+            try
+            {
+                var dto = new TagPrefsDTO { everything = TagEverything, enabled = new List<string>(_enabledTags) };
+                var json = JsonUtility.ToJson(dto);
+                EditorPrefs.SetString(GetTagPrefsKey(), json ?? string.Empty);
+            }
+            catch { /* ignore */ }
+        }
+        internal void SetEverything(bool on)
+        {
+            TagEverything = on;
+            _enabledTags.Clear();
+        }
 
         private readonly List<Entry> _visible = new();
 
@@ -207,6 +269,15 @@ namespace BattleTurn.StyledLog.Editor
             for (int i = 0; i < list.Count; i++)
             {
                 var e = list[i];
+                // Tag filter:
+                if (_enabledTags.Count == 0)
+                {
+                    if (!TagEverything) continue; // all off
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(e.tag) && !_enabledTags.Contains(e.tag)) continue;
+                }
                 if ((e.type == LogType.Log && !ShowLog) ||
                     (e.type == LogType.Warning && !ShowWarn) ||
                     (e.type == LogType.Error && !ShowError))
