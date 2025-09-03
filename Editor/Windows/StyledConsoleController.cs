@@ -51,6 +51,8 @@ namespace BattleTurn.StyledLog.Editor
         // emit
         internal static void AddLog(string tag, string richWithFont, LogType type, string stack)
         {
+            // Normalize Exception to Error per requirement
+            if (type == LogType.Exception) type = LogType.Error;
             // resolve per-row Font from StyleSetting (for IMGUI)
             Font font = null;
             var mgr = StyledDebug.StyledLogManager;
@@ -150,9 +152,12 @@ namespace BattleTurn.StyledLog.Editor
 
                 foreach (var d in dto.all)
                 {
+                    // Normalize Exception to Error on load as well
+                    var logType = (LogType)d.type;
+                    if (logType == LogType.Exception) logType = LogType.Error;
                     var e = new Entry
                     {
-                        type = (LogType)d.type,
+                        type = logType,
                         tag = d.tag,
                         rich = d.rich,
                         font = null,
