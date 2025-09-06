@@ -1,102 +1,44 @@
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using UnityEditor;
-using UnityEditor.Build;
 using UnityEditorInternal;
-using UnityEditor.Build.Reporting;
 using UnityEngine;
 
 namespace BattleTurn.StyledLog.Editor
 {
     public class StyledConsoleWindow : EditorWindow
     {
-        // Controller: holds logic/state; window focuses on UI only
-        private readonly StyledConsoleController _controller = new StyledConsoleController();
+        // Per-window controller (global storage is static inside controller)
+        private readonly StyledConsoleController _controller = new();
 
-        // data
-        private static readonly List<Entry> _all = new();
-        private static readonly List<Entry> _collapsed = new();
-        private static readonly Dictionary<string, Entry> _collapseIndex = new();
-
-        private static readonly List<Entry> _visible = new();
-
-        // persistent clear options
-        private const string PrefKey_ClearOnPlay = "StyledConsole.ClearOnPlay";
-        private const string PrefKey_ClearOnBuild = "StyledConsole.ClearOnBuild";
-        private const string PrefKey_ClearOnRecompile = "StyledConsole.ClearOnRecompile";
-
-        private static bool s_clearOnPlay = true;    // defaults match Unity Console
-        private static bool s_clearOnBuild = true;
-        private static bool s_clearOnRecompile = false;
-        private static bool s_prefsLoaded;
-
-        // expose read-only for hooks
-        internal static bool ClearOnPlay => s_clearOnPlay;
-        internal static bool ClearOnBuild => s_clearOnBuild;
-        internal static bool ClearOnRecompile => s_clearOnRecompile;
-
-        // notified when storage cleared (to update any open windows)
-        internal static event System.Action Cleared;
-        internal static void RaiseCleared() { Cleared?.Invoke(); }
-
-        // session-state keys for snapshot across domain reload
-        private const string SessionKey_Snapshot = "StyledConsole.Snapshot";
-        private const string SessionKey_HasSnapshot = "StyledConsole.HasSnapshot";
-
-        // load prefs lazily to avoid calling EditorPrefs during ScriptableObject construction
-        internal static void EnsurePrefsLoaded()
-        {
-            if (s_prefsLoaded) return;
-            s_clearOnPlay = EditorPrefs.GetBool(PrefKey_ClearOnPlay, true);
-            s_clearOnBuild = EditorPrefs.GetBool(PrefKey_ClearOnBuild, true);
-            s_clearOnRecompile = EditorPrefs.GetBool(PrefKey_ClearOnRecompile, false);
-            s_prefsLoaded = true;
-        }
-
-        // selection
-        private int _selectedIndex = -1;
-        private IList<Entry> ActiveList() => _collapse ? _collapsed : _all;
-
-        // scroll states
-    private Vector2 _scrollList;
-    private Vector2 _scrollStack;
-    private Vector2 _scrollMessage;
-
-        // filters
-        private bool _showLog = true, _showWarn = true, _showError = true;
-        private string _search = "";
-
-        // view toggles
+        // Scroll positions
+        private Vector2 _scrollList, _scrollStack, _scrollMessage;
+        // Autoscroll
         private bool _autoScroll = true;
-        private bool _collapse = false;
-        private bool _autoScrollRequest = false; // set when new entries arrive
+        private bool _autoScrollRequest;
 
-        // counters (total, not filtered)
-        private int _countLog, _countWarn, _countError;
+        // Icons
+        private GUIContent _iconInfo, _iconWarn, _iconError, _iconCompiler;
 
-        // icons (loaded in OnEnable)
-        private GUIContent _iconInfo, _iconWarn, _iconError;
-
-        // columns
+        // Column widths & splitter state
         private float _colIconW = 24f;
         private float _colTypeW = 80f;
         private float _colTagW = 160f;
-        private const float _minColW = 60f;
-        private const float _splitW = 4f;
+        private const float MinColW = 60f;
+        private const float SplitW = 4f;
         private bool _dragTypeSplit, _dragTagSplit;
-        private float _typeWStart, _tagWStart, _dragStartX;
 
-        // vertical split (list vs. stack panel)
-        private float _stackFrac = 0.38f;          // 0..1 (bottom pane height / content height)
-        private const float _minStackH = 80f;
-        private const float _minListH = 80f;
+        // Vertical split (row list vs stack pane)
+        private float _stackFrac = 0.38f; // bottom pane fraction
+        private const float MinStackH = 80f;
+        private const float MinListH = 80f;
 
-    // inside stack pane: split between message and stacktrace
-    private float _stackMessageFrac = 0.4f;     // fraction of stack pane height used by message view
-    private const float _minMessageH = 40f;
-    private const float _minFramesH = 80f;
+        // Inside stack pane: message vs frames splitter
+        private float _stackMessageFrac = 0.4f;
+        private const float MinMessageH = 40f;
+        private const float MinFramesH = 80f;
 
-        // tooltip state to avoid flicker
+        // Tooltip state
         private string _ttAbsPath;
         private int _ttLine;
 
@@ -114,207 +56,44 @@ namespace BattleTurn.StyledLog.Editor
             _iconInfo = EditorGUIUtility.IconContent("console.infoicon");
             _iconWarn = EditorGUIUtility.IconContent("console.warnicon");
             _iconError = EditorGUIUtility.IconContent("console.erroricon");
+            _iconCompiler = EditorGUIUtility.IconContent("d_UnityEditor.ConsoleWindow");
+            if (_iconCompiler == null || _iconCompiler.image == null) _iconCompiler = _iconWarn;
 
-            // Unsubscribe first to avoid double subscription
-            StyledDebug.onEmit -= OnEmit;
-            StyledDebug.onEmit += OnEmit;
+            StyledDebug.onEmit -= OnEmit; StyledDebug.onEmit += OnEmit;
+            StyledConsoleController.Cleared -= HandleCleared; StyledConsoleController.Cleared += HandleCleared;
+            StyledConsoleController.Changed -= HandleChanged; StyledConsoleController.Changed += HandleChanged;
 
-            // react to external clears
-            StyledConsoleController.Cleared -= HandleCleared;
-            StyledConsoleController.Cleared += HandleCleared;
+            if (!StyledConsoleController.ClearOnRecompile && StyledConsoleController.LoadSnapshot())
+                StyledConsoleController.RaiseCleared();
 
-            // if we re-opened after a reload and snapshot exists, restore it
-            if (!StyledConsoleController.ClearOnRecompile)
-            {
-                if (StyledConsoleController.LoadSnapshot())
-                {
-                    StyledConsoleController.RaiseCleared();
-                }
-            }
+            // Ensure any existing compiler diagnostics are visible immediately
+            StyledConsoleController.SyncCompilerMessages();
         }
 
         private void OnDisable()
         {
             StyledDebug.onEmit -= OnEmit;
             StyledConsoleController.Cleared -= HandleCleared;
+            StyledConsoleController.Changed -= HandleChanged;
         }
-
-        // ─────────────────────────────────────────────────────────────────────────────
-        // ingest
 
         private void OnEmit(string tag, string richWithFont, LogType type, string stack)
         {
-            // Ingest into controller and request autoscroll
             StyledConsoleController.AddLog(tag, richWithFont, type, stack);
-            if (_controller.SelectedIndex < 0 && _controller.GetVisibleCount() > 0)
-                _controller.SelectedIndex = _controller.GetVisibleCount() - 1;
             _autoScrollRequest = _autoScroll;
-
+            if (!StyledConsoleController.ClearOnRecompile) StyledConsoleController.SaveSnapshot();
             Repaint();
-
-            // persist snapshot so logs survive recompile when option is off
-            StyledConsoleController.EnsurePrefsLoaded();
-            if (!StyledConsoleController.ClearOnRecompile)
-            {
-                StyledConsoleController.SaveSnapshot();
-            }
         }
-
-        private static string CollapseKey(Entry e) => $"{(int)e.type}|{e.tag}|{e.rich}";
-
-        private void AddCollapsed(Entry e)
-        {
-            var key = CollapseKey(e);
-            if (_collapseIndex.TryGetValue(key, out var hit))
-            {
-                hit.count++;
-            }
-            else
-            {
-                var clone = new Entry { type = e.type, tag = e.tag, rich = e.rich, font = e.font, stack = e.stack, count = 1 };
-                _collapseIndex[key] = clone;
-                _collapsed.Add(clone);
-            }
-        }
-
-        private void RebuildCollapsed()
-        {
-            _collapsed.Clear();
-            _collapseIndex.Clear();
-            foreach (var e in _all) AddCollapsed(e);
-        }
-
-        private void BuildVisible()
-        {
-            _visible.Clear();
-            var list = ActiveList();
-
-            string s = _search?.Trim();
-            bool hasSearch = !string.IsNullOrEmpty(s);
-            if (hasSearch) s = s.ToLowerInvariant();
-
-            for (int i = 0; i < list.Count; i++)
-            {
-                var e = list[i];
-
-                if ((e.type == LogType.Log && !_showLog) ||
-                    (e.type == LogType.Warning && !_showWarn) ||
-                    (e.type == LogType.Error && !_showError))
-                    continue;
-
-                if (hasSearch)
-                {
-                    var t = e.type.ToString().ToLowerInvariant();
-                    var g = (e.tag ?? "").ToLowerInvariant();
-                    var m = (e.rich ?? "").ToLowerInvariant();
-                    if (t.IndexOf(s) < 0 && g.IndexOf(s) < 0 && m.IndexOf(s) < 0)
-                        continue;
-                }
-                _visible.Add(e);
-            }
-
-            if (_visible.Count > 0 && (_selectedIndex < 0 || _selectedIndex >= _visible.Count))
-                _selectedIndex = 0;
-        }
-
-        private void Tally(LogType type, int delta)
-        {
-            if (type == LogType.Log) _countLog += delta;
-            else if (type == LogType.Warning) _countWarn += delta;
-            else if (type == LogType.Error) _countError += delta;
-        }
-
-        // central clear routine (used by button + hooks)
-        internal static void ClearAllStorage()
-        {
-            _all.Clear();
-            _collapsed.Clear();
-            _collapseIndex.Clear();
-            _visible.Clear();
-            Cleared?.Invoke();
-
-            // also clear any persisted snapshot
-            SessionState.SetBool(SessionKey_HasSnapshot, false);
-            SessionState.SetString(SessionKey_Snapshot, "");
-        }
-
         private void HandleCleared()
         {
-            _countLog = _countWarn = _countError = 0;
-            _selectedIndex = -1;
             _scrollList = Vector2.zero;
             _autoScrollRequest = false;
             Repaint();
         }
-
-        // Serialize current logs into SessionState to survive domain reload when "Clear on Recompile" is off
-        internal static void SaveSnapshot()
+        private void HandleChanged()
         {
-            try
-            {
-                var dto = new SnapshotDTO { all = new List<EntryDTO>(_all.Count) };
-                foreach (var e in _all)
-                {
-                    dto.all.Add(new EntryDTO
-                    {
-                        type = (int)e.type,
-                        tag = e.tag,
-                        rich = e.rich,
-                        stack = e.stack,
-                        count = e.count
-                    });
-                }
-                var json = JsonUtility.ToJson(dto);
-                SessionState.SetString(SessionKey_Snapshot, json ?? "");
-                SessionState.SetBool(SessionKey_HasSnapshot, true);
-            }
-            catch { /* ignore */ }
-        }
-
-        // Restore snapshot if present; returns true if restored
-        internal static bool LoadSnapshot()
-        {
-            try
-            {
-                if (!SessionState.GetBool(SessionKey_HasSnapshot, false)) return false;
-                var json = SessionState.GetString(SessionKey_Snapshot, "");
-                SessionState.SetBool(SessionKey_HasSnapshot, false);
-                SessionState.SetString(SessionKey_Snapshot, "");
-                if (string.IsNullOrEmpty(json)) return false;
-                var dto = JsonUtility.FromJson<SnapshotDTO>(json);
-                if (dto?.all == null) return false;
-
-                _all.Clear();
-                _collapsed.Clear();
-                _collapseIndex.Clear();
-                _visible.Clear();
-
-                foreach (var d in dto.all)
-                {
-                    var e = new Entry
-                    {
-                        type = (LogType)d.type,
-                        tag = d.tag,
-                        rich = d.rich,
-                        font = null,
-                        stack = d.stack,
-                        count = d.count <= 0 ? 1 : d.count
-                    };
-                    _all.Add(e);
-                }
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        // persist toggle helper
-        private static void TogglePref(string key, ref bool field)
-        {
-            field = !field;
-            EditorPrefs.SetBool(key, field);
+            if (_autoScroll) _autoScrollRequest = true;
+            Repaint();
         }
 
         // ─────────────────────────────────────────────────────────────────────────────
@@ -324,7 +103,7 @@ namespace BattleTurn.StyledLog.Editor
         {
             DrawToolbar();
             DrawHeaderWithSplitters();
-            _controller.BuildVisible(); // lọc trước khi vẽ list
+            _controller.BuildVisible();
 
             // Chiều cao còn lại của cửa sổ
             float availH = position.height;
@@ -334,7 +113,7 @@ namespace BattleTurn.StyledLog.Editor
             const float bottomChrome = 22f /*status*/ + 6f;
 
             float contentH = Mathf.Max(100f, availH - topChrome - bottomChrome);
-            float listH = Mathf.Clamp(contentH * (1f - _stackFrac), _minListH, contentH - _minStackH);
+            float listH = Mathf.Clamp(contentH * (1f - _stackFrac), MinListH, contentH - MinStackH);
             float stackH = contentH - listH;
 
             // LIST
@@ -352,7 +131,7 @@ namespace BattleTurn.StyledLog.Editor
                     {
                         // Invert dy so dragging up increases the bottom pane (more stack), dragging down decreases it
                         float total = contentH;
-                        float newStackH = Mathf.Clamp(stackH - dy, _minStackH, total - _minListH);
+                        float newStackH = Mathf.Clamp(stackH - dy, MinStackH, total - MinListH);
                         _stackFrac = newStackH / total;
                         Repaint();
                     },
@@ -374,7 +153,7 @@ namespace BattleTurn.StyledLog.Editor
         }
 
 
-        private void DrawToolbar()
+    private void DrawToolbar()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
@@ -391,10 +170,9 @@ namespace BattleTurn.StyledLog.Editor
                 _controller.Search = StyledConsoleEditorGUI.ToolbarSearch(_controller.Search, 180f);
 
                 // Clear
-                if (GUILayout.Button("Clear", EditorStyles.toolbarButton))
-                {
-                    StyledConsoleController.ClearAllStorage();
-                }
+                if (GUILayout.Button("Clear", EditorStyles.toolbarButton)) StyledConsoleController.ClearPreserveCompileErrors();
+
+                // (Sync Compiler button removed – auto-sync active)
 
                 // Options dropdown (Clear on: Play/Build/Recompile)
                 if (EditorGUILayout.DropdownButton(new GUIContent(""), FocusType.Passive, EditorStyles.toolbarDropDown))
@@ -404,6 +182,8 @@ namespace BattleTurn.StyledLog.Editor
                     menu.AddItem(new GUIContent("Clear on Play"), StyledConsoleController.ClearOnPlay, () => StyledConsoleController.TogglePref_ClearOnPlay());
                     menu.AddItem(new GUIContent("Clear on Build"), StyledConsoleController.ClearOnBuild, () => StyledConsoleController.TogglePref_ClearOnBuild());
                     menu.AddItem(new GUIContent("Clear on Recompile"), StyledConsoleController.ClearOnRecompile, () => StyledConsoleController.TogglePref_ClearOnRecompile());
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent("Live Compiler Sync"), StyledConsoleController.LiveCompilerSync, () => StyledConsoleController.TogglePref_LiveCompilerSync());
                     menu.ShowAsContext();
                 }
             }
@@ -428,20 +208,20 @@ namespace BattleTurn.StyledLog.Editor
                 GUILayout.Label("Message");
 
                 // vertical splitters aligned to window coordinates
-                var rTypeRight = new Rect(_colTypeW, headerRect.y, _splitW, headerRect.height);
-                var rTagRight = new Rect(_colTypeW + _colTagW + _splitW, headerRect.y, _splitW, headerRect.height);
+                var rTypeRight = new Rect(_colTypeW, headerRect.y, SplitW, headerRect.height);
+                var rTagRight = new Rect(_colTypeW + _colTagW + SplitW, headerRect.y, SplitW, headerRect.height);
 
                 // type|tag splitter
                 StyledConsoleEditorGUI.DrawVSplitter(
                     rTypeRight,
-                    dx => { _dragTypeSplit = true; _dragStartX += dx; _colTypeW = Mathf.Max(_minColW, _colTypeW + dx); Repaint(); },
+                    dx => { _dragTypeSplit = true; _colTypeW = Mathf.Max(MinColW, _colTypeW + dx); Repaint(); },
                     () => { _dragTypeSplit = false; }
                 );
 
                 // tag|message splitter
                 StyledConsoleEditorGUI.DrawVSplitter(
                     rTagRight,
-                    dx => { _dragTagSplit = true; _dragStartX += dx; _colTagW = Mathf.Max(_minColW, _colTagW + dx); Repaint(); },
+                    dx => { _dragTagSplit = true; _colTagW = Mathf.Max(MinColW, _colTagW + dx); Repaint(); },
                     () => { _dragTagSplit = false; }
                 );
 
@@ -453,7 +233,7 @@ namespace BattleTurn.StyledLog.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        private void DrawTagDropdown(Rect rect)
+    private void DrawTagDropdown(Rect rect)
         {
             // Draw label and a small dropdown arrow inside the same header cell
             const float arrowW = 20f;
@@ -482,6 +262,7 @@ namespace BattleTurn.StyledLog.Editor
             // Always include the special tags we may emit
             if (!tags.Contains("Unity")) tags.Add("Unity");
             if (!tags.Contains("default")) tags.Add("default");
+            if (!tags.Contains("Compiler")) tags.Add("Compiler");
 
             // Everything toggle semantics:
             // - When Everything is ON and there are no explicit selections, all tags are visible (future tags too)
@@ -530,9 +311,10 @@ namespace BattleTurn.StyledLog.Editor
             menu.ShowAsContext();
         }
 
-        private void DrawRowsAreaLayout(Rect rect)
+    private void DrawRowsAreaLayout(Rect rect)
         {
             // Use shared drawer and delegate input to controller
+            StyledConsoleEditorGUI.CompilerIcon = _iconCompiler;
             StyledConsoleEditorGUI.DrawRows(
                 rect,
                 _controller,
@@ -547,7 +329,7 @@ namespace BattleTurn.StyledLog.Editor
             );
         }
 
-        private void DrawStackPaneLayout(Rect rect)
+    private void DrawStackPaneLayout(Rect rect)
         {
             // draw boxed background
             GUI.Box(rect, GUIContent.none);
@@ -570,7 +352,7 @@ namespace BattleTurn.StyledLog.Editor
             float contentTop = toolbarRect.yMax + 4f;
             float contentBottom = rect.yMax - 4f;
             float totalH = Mathf.Max(0f, contentBottom - contentTop);
-            float desiredMsgH = Mathf.Clamp(totalH * _stackMessageFrac, _minMessageH, Mathf.Max(_minMessageH, totalH - _minFramesH));
+            float desiredMsgH = Mathf.Clamp(totalH * _stackMessageFrac, MinMessageH, Mathf.Max(MinMessageH, totalH - MinFramesH));
             var messageRect = new Rect(rect.x + 6f, contentTop, rect.width - 12f, desiredMsgH);
             GUI.Box(messageRect, GUIContent.none, EditorStyles.helpBox);
 
@@ -590,7 +372,41 @@ namespace BattleTurn.StyledLog.Editor
             var msgView = new Rect(msgInner.x, msgInner.y, msgInner.width, msgInner.height);
             var msgContent = new Rect(0, 0, msgInner.width - 16f, msgContentH + 4f);
             _scrollMessage = GUI.BeginScrollView(msgView, _scrollMessage, msgContent);
-            GUI.Label(new Rect(0, 0, msgContent.width, msgContentH), messageText, msgStyle);
+            // Render message with basic clickable file path detection when no stacktrace frames
+            var msgLabelRect = new Rect(0, 0, msgContent.width, msgContentH);
+            GUI.Label(msgLabelRect, messageText, msgStyle);
+
+            // If stacktrace empty, attempt to detect first file path + optional :line inside message for navigation
+            if (string.IsNullOrEmpty(_controller.SelectedStack()) && !string.IsNullOrEmpty(messageText))
+            {
+                // Simple regex: match Assets/... or absolute path ending with .cs optionally followed by :line
+                var rxPath = new Regex(@"(?<path>(?:Assets|Packages)/[^\n\r:]+?\.cs)(?::(?<line>\d+))?", RegexOptions.IgnoreCase);
+                var m = rxPath.Match(messageText);
+                if (m.Success)
+                {
+                    string rel = m.Groups["path"].Value;
+                    int line = 0; int.TryParse(m.Groups["line"].Value, out line);
+                    string abs = StyledConsoleController.NormalizeToAbsolutePath(rel);
+                    // Approximate clickable rect by measuring text up to match start & match length
+                    string pre = messageText.Substring(0, m.Index);
+                    string hit = messageText.Substring(m.Index, m.Length);
+                    Vector2 preSize = msgStyle.CalcSize(new GUIContent(pre));
+                    Vector2 hitSize = msgStyle.CalcSize(new GUIContent(hit));
+                    var linkRect = new Rect(msgLabelRect.x + preSize.x, msgLabelRect.y, hitSize.x, EditorGUIUtility.singleLineHeight);
+                    EditorGUIUtility.AddCursorRect(linkRect, MouseCursor.Link);
+                    bool hover = linkRect.Contains(Event.current.mousePosition);
+                    if (hover)
+                    {
+                        ConsoleCodeTooltip.ShowAtScreenRect(GUIUtility.GUIToScreenPoint(new Vector2(linkRect.x, linkRect.y + linkRect.height)), this, abs, Mathf.Max(1, line));
+                        if (Event.current.type == EventType.MouseDown && Event.current.clickCount == 2)
+                        {
+                            if (line <= 0) line = 1;
+                            StyledConsoleController.OpenAbsolutePath(abs, line);
+                            Event.current.Use();
+                        }
+                    }
+                }
+            }
             GUI.EndScrollView();
 
             // Local splitter between message and stacktrace
@@ -600,7 +416,7 @@ namespace BattleTurn.StyledLog.Editor
                 dy =>
                 {
                     // Increase message height when dragging down
-                    float newMsgH = Mathf.Clamp(desiredMsgH + dy, _minMessageH, Mathf.Max(_minMessageH, totalH - _minFramesH));
+                    float newMsgH = Mathf.Clamp(desiredMsgH + dy, MinMessageH, Mathf.Max(MinMessageH, totalH - MinFramesH));
                     _stackMessageFrac = totalH > 0 ? newMsgH / totalH : _stackMessageFrac;
                     Repaint();
                 },
@@ -693,11 +509,7 @@ namespace BattleTurn.StyledLog.Editor
                             ConsoleCodeTooltip.ShowAtScreenRect(linkScreenPoint, this, abs, Mathf.Max(1, f.line));
                         }
 
-                        if (Event.current.type == EventType.MouseDown && hover)
-                        {
-                            StyledConsoleController.OpenFrame(f);
-                            Event.current.Use();
-                        }
+                        if (Event.current.type == EventType.MouseDown && hover) { StyledConsoleController.OpenFrame(f); Event.current.Use(); }
                     }
                     else
                     {
@@ -719,171 +531,11 @@ namespace BattleTurn.StyledLog.Editor
         // ─────────────────────────────────────────────────────────────────────────────
         // Stack parsing and navigation
 
-        private static readonly Regex s_rxIn = new Regex(@"^\s*at\s+(.*?)\s+in\s+(.+?):line\s+(\d+)", RegexOptions.Compiled);
-        private static readonly Regex s_rxIn2 = new Regex(@"^\s*at\s+(.*?)\s+(?:\[[^\]]*\]\s+)?in\s+(.+?):(\d+)", RegexOptions.Compiled);
-        private static readonly Regex s_rxAt = new Regex(@"^\s*(.*?)\s+\(at\s+(.+?):(\d+)\)", RegexOptions.Compiled);
-
-        private class Frame
-        {
-            public string raw;        // original line
-            public string method;     // Namespace.Type.Method
-            public string path;       // file path (absolute or relative)
-            public int line;          // 1-based line
-            public bool isUser;       // heuristic user code
-            public string display;    // short display (Assets/..:line or file.cs:line)
-        }
-
-        private static List<Frame> ParseStackFrames(string stack)
-        {
-            var list = new List<Frame>();
-            if (string.IsNullOrEmpty(stack)) return list;
-            var lines = stack.Split(new[] { '\r', '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
-            foreach (var ln in lines)
-            {
-                var line = ln.TrimEnd();
-                if (TryParseFrame(line, out var f))
-                {
-                    f.isUser = IsUserMethod(f.method) || IsUserPath(f.path);
-                    f.display = MakeDisplay(f.path, f.line);
-                    list.Add(f);
-                }
-                else
-                {
-                    list.Add(new Frame { raw = line, method = line, path = null, line = 0, isUser = false, display = line });
-                }
-            }
-            return list;
-        }
-
-        private static bool TryParseFrame(string line, out Frame frame)
-        {
-            // Matches: at Namespace.Type.Method(...) in C:\path\file.cs:line 123
-            var m = s_rxIn.Match(line);
-            if (m.Success)
-            {
-                frame = new Frame { raw = line, method = m.Groups[1].Value, path = m.Groups[2].Value, line = SafeParseInt(m.Groups[3].Value) };
-                return true;
-            }
-            // Matches: at Namespace.Type.Method(...) [0x..] in C:\path\file.cs:123 (no 'line' keyword)
-            m = s_rxIn2.Match(line);
-            if (m.Success)
-            {
-                frame = new Frame { raw = line, method = m.Groups[1].Value, path = m.Groups[2].Value, line = SafeParseInt(m.Groups[3].Value) };
-                return true;
-            }
-            // Matches: Namespace.Type.Method(...) (at Assets/Some.cs:123)
-            m = s_rxAt.Match(line);
-            if (m.Success)
-            {
-                frame = new Frame { raw = line, method = m.Groups[1].Value, path = m.Groups[2].Value, line = SafeParseInt(m.Groups[3].Value) };
-                return true;
-            }
-            frame = null; return false;
-        }
-
-        private static bool IsUserMethod(string method)
-        {
-            if (string.IsNullOrEmpty(method)) return false;
-            if (method.StartsWith("UnityEngine.")) return false;
-            if (method.StartsWith("UnityEditor.")) return false;
-            return true;
-        }
-
-        private static bool IsUserPath(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return false;
-            // Consider anything under Assets or non-unity packages as user
-            var p = path.Replace('\\', '/');
-            if (p.Contains("/Assets/")) return true;
-            if (p.Contains("/Packages/") && !p.Contains("/Packages/com.unity.")) return true;
-            // absolute outside library also likely user
-            return !(p.Contains("/Editor/Data/") || p.Contains("/Editor/"));
-        }
-
-        private static string MakeDisplay(string path, int line)
-        {
-            if (string.IsNullOrEmpty(path)) return "<unknown>";
-            var p = path.Replace('\\', '/');
-            string shortP = p;
-            int idx = p.IndexOf("/Assets/");
-            if (idx >= 0) shortP = p.Substring(idx + 1); // keep from Assets/...
-            else
-            {
-                idx = p.IndexOf("/Packages/");
-                if (idx >= 0) shortP = p.Substring(idx + 1);
-                else
-                {
-                    // fall back to filename
-                    int slash = p.LastIndexOf('/');
-                    if (slash >= 0) shortP = p.Substring(slash + 1);
-                }
-            }
-            return line > 0 ? $"{shortP}:{line}" : shortP;
-        }
-
-        private static Frame GetFirstUserFrame(List<Frame> frames)
-        {
-            for (int i = 0; i < frames.Count; i++)
-            {
-                if (frames[i].isUser && frames[i].line > 0 && !string.IsNullOrEmpty(frames[i].path))
-                    return frames[i];
-            }
-            return null;
-        }
-
-        private static int SafeParseInt(string s)
-        {
-            if (int.TryParse(s, out var v)) return v; return 0;
-        }
-
-        private static void OpenFrame(Frame f)
-        {
-            if (f == null || string.IsNullOrEmpty(f.path)) return;
-            var abs = StyledConsoleController.NormalizeToAbsolutePath(f.path);
-            var rel = AbsoluteToUnityPath(abs);
-            if (!string.IsNullOrEmpty(rel))
-            {
-                var obj = AssetDatabase.LoadAssetAtPath<Object>(rel);
-                if (obj != null) { AssetDatabase.OpenAsset(obj, Mathf.Max(1, f.line)); return; }
-            }
-            // fallback to external open
-            InternalEditorUtility.OpenFileAtLineExternal(abs, Mathf.Max(1, f.line));
-        }
-
-        private static string NormalizeToAbsolutePath(string path)
-        {
-            var p = path.Replace('\\', '/');
-            if (System.IO.Path.IsPathRooted(p)) return p;
-            // under project
-            var proj = System.IO.Path.GetDirectoryName(Application.dataPath).Replace('\\', '/');
-            return System.IO.Path.GetFullPath(System.IO.Path.Combine(proj, p)).Replace('\\', '/');
-        }
-
-        private static string AbsoluteToUnityPath(string abs)
-        {
-            if (string.IsNullOrEmpty(abs)) return null;
-            abs = abs.Replace('\\', '/');
-            var data = Application.dataPath.Replace('\\', '/');
-            if (abs.StartsWith(data)) return "Assets" + abs.Substring(data.Length);
-            // allow Packages/... direct
-            int idx = abs.IndexOf("/Packages/");
-            if (idx >= 0) return abs.Substring(idx + 1);
-            return null;
-        }
-
-
-        private Entry SelectedEntry()
-        {
-            var list = ActiveList();
-            if (_selectedIndex < 0 || _selectedIndex >= list.Count) return null;
-            return list[_selectedIndex];
-        }
-
-        private void DrawStatusBar()
+    private void DrawStatusBar()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                // compute counts from current data so restored snapshots show correct totals
+        // compute counts from controller storage
                 StyledConsoleController.ComputeCounts(out var cLog, out var cWarn, out var cErr);
                 GUILayout.Label($"Log: {cLog}", EditorStyles.miniLabel);
                 GUILayout.Space(10);
@@ -892,7 +544,7 @@ namespace BattleTurn.StyledLog.Editor
                 GUILayout.Label($"Error: {cErr}", EditorStyles.miniLabel);
 
                 GUILayout.FlexibleSpace();
-                GUILayout.Label(_controller.Collapse ? "Collapsed view" : "Full view", EditorStyles.miniLabel);
+        GUILayout.Label(_controller.Collapse ? "Collapsed view" : "Full view", EditorStyles.miniLabel);
             }
         }
     }

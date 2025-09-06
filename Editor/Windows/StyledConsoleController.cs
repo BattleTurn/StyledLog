@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
+using UnityEditor.Compilation;
 
 namespace BattleTurn.StyledLog.Editor
 {
@@ -14,22 +15,36 @@ namespace BattleTurn.StyledLog.Editor
         private static readonly List<Entry> s_all = new();
         private static readonly List<Entry> s_collapsed = new();
         private static readonly Dictionary<string, Entry> s_collapseIndex = new();
+        // Track compiler messages already ingested (key: type|file|line|col|msg)
+        private static readonly HashSet<string> s_compilerKeys = new();
+        // Persist compiler diagnostics across domain reload even when ClearOnRecompile is ON
+        private const string SessionKey_CompilerSnapshot = "StyledConsole.CompilerSnapshot";
+
+        [System.Serializable]
+        private class CompilerMsgDTO { public int type; public string file; public int line; public int col; public string message; }
+        [System.Serializable]
+        private class CompilerMsgListDTO { public List<CompilerMsgDTO> list = new(); }
 
         // prefs keys
         private const string PrefKey_ClearOnPlay = "StyledConsole.ClearOnPlay";
         private const string PrefKey_ClearOnBuild = "StyledConsole.ClearOnBuild";
         private const string PrefKey_ClearOnRecompile = "StyledConsole.ClearOnRecompile";
+    private const string PrefKey_LiveCompilerSync = "StyledConsole.LiveCompilerSync";
         private static bool s_clearOnPlay = true;
         private static bool s_clearOnBuild = true;
-        private static bool s_clearOnRecompile = false;
+    private static bool s_clearOnRecompile = false;
+    private static bool s_liveCompilerSync = true; // new: auto sync compiler diagnostics while compiling
         private static bool s_prefsLoaded;
 
         internal static bool ClearOnPlay => s_clearOnPlay;
         internal static bool ClearOnBuild => s_clearOnBuild;
         internal static bool ClearOnRecompile => s_clearOnRecompile;
+    internal static bool LiveCompilerSync => s_liveCompilerSync;
 
         internal static event System.Action Cleared;
         internal static void RaiseCleared() => Cleared?.Invoke();
+        // Fired when new entries are appended (logs or compiler) without clearing existing storage
+        internal static event System.Action Changed;
 
         // snapshot keys
         private const string SessionKey_Snapshot = "StyledConsole.Snapshot";
@@ -41,12 +56,14 @@ namespace BattleTurn.StyledLog.Editor
             s_clearOnPlay = EditorPrefs.GetBool(PrefKey_ClearOnPlay, true);
             s_clearOnBuild = EditorPrefs.GetBool(PrefKey_ClearOnBuild, true);
             s_clearOnRecompile = EditorPrefs.GetBool(PrefKey_ClearOnRecompile, false);
+            s_liveCompilerSync = EditorPrefs.GetBool(PrefKey_LiveCompilerSync, true);
             s_prefsLoaded = true;
         }
 
         internal static void TogglePref_ClearOnPlay() { s_clearOnPlay = !s_clearOnPlay; EditorPrefs.SetBool(PrefKey_ClearOnPlay, s_clearOnPlay); }
         internal static void TogglePref_ClearOnBuild() { s_clearOnBuild = !s_clearOnBuild; EditorPrefs.SetBool(PrefKey_ClearOnBuild, s_clearOnBuild); }
         internal static void TogglePref_ClearOnRecompile() { s_clearOnRecompile = !s_clearOnRecompile; EditorPrefs.SetBool(PrefKey_ClearOnRecompile, s_clearOnRecompile); }
+    internal static void TogglePref_LiveCompilerSync() { s_liveCompilerSync = !s_liveCompilerSync; EditorPrefs.SetBool(PrefKey_LiveCompilerSync, s_liveCompilerSync); }
 
         // emit
         internal static void AddLog(string tag, string richWithFont, LogType type, string stack)
@@ -75,6 +92,51 @@ namespace BattleTurn.StyledLog.Editor
             s_all.Add(e);
             // update collapsed cache too so it stays in sync
             AddCollapsed(e);
+            // Notify listeners that new entry appended
+            Changed?.Invoke();
+        }
+
+        // Sync current compiler messages (warnings + errors) into log list
+        internal static void SyncCompilerMessages()
+        {
+            CompilerMessage[] msgs = null;
+            try { msgs = (CompilerMessage[])typeof(CompilationPipeline).GetProperty("compilerMessages")?.GetValue(null, null); } catch { }
+            if (msgs == null)
+            {
+                var mi = typeof(CompilationPipeline).GetMethod("GetMessages", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                if (mi != null)
+                {
+                    try { msgs = mi.Invoke(null, null) as CompilerMessage[]; } catch { }
+                }
+            }
+            if (msgs == null) return;
+            string projectRoot = System.IO.Path.GetDirectoryName(Application.dataPath).Replace('\\', '/');
+            bool addedAny = false;
+            for (int i = 0; i < msgs.Length; i++)
+            {
+                var cm = msgs[i];
+                LogType lt;
+                if (cm.type == CompilerMessageType.Error) lt = LogType.Error;
+                else if (cm.type == CompilerMessageType.Warning) lt = LogType.Warning;
+                else continue; // ignore others
+                string file = cm.file?.Replace('\\', '/') ?? string.Empty;
+                if (!string.IsNullOrEmpty(file) && file.StartsWith(projectRoot)) file = file.Substring(projectRoot.Length + 1);
+                string key = $"{(int)lt}|{file}|{cm.line}|{cm.column}|{cm.message}";
+                if (s_compilerKeys.Contains(key)) continue;
+                s_compilerKeys.Add(key);
+                string formatted = string.IsNullOrEmpty(file)
+                    ? cm.message
+                    : $"{file}({cm.line},{cm.column}): {(lt == LogType.Error ? "error" : "warning")}: {cm.message}";
+                var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = string.Empty, count = 1 };
+                s_all.Add(e);
+                AddCollapsed(e);
+                addedAny = true;
+            }
+            if (addedAny)
+            {
+                SaveCompilerDiagnosticsSnapshot();
+                Changed?.Invoke();
+            }
         }
 
         private static string CollapseKey(Entry e) => $"{(int)e.type}|{e.tag}|{e.rich}";
@@ -107,6 +169,63 @@ namespace BattleTurn.StyledLog.Editor
             s_collapseIndex.Clear();
             Cleared?.Invoke();
 
+            SessionState.SetBool(SessionKey_HasSnapshot, false);
+            SessionState.SetString(SessionKey_Snapshot, "");
+        }
+
+        // Manual clear (user pressed Clear button): preserve active compile diagnostics (errors + warnings) like Unity Console behavior
+        internal static void ClearPreserveCompileErrors()
+        {
+            // Gather current compile diagnostics
+            var preserved = new List<Entry>();
+            try
+            {
+                CompilerMessage[] msgs = null;
+                // Newer Unity exposes CompilationPipeline.compilerMessages (obsolete soon) or via reflection
+                try { msgs = (CompilerMessage[])typeof(CompilationPipeline).GetProperty("compilerMessages")?.GetValue(null, null); } catch { }
+                if (msgs == null)
+                {
+                    // fallback: try internal GetMessages (undocumented) via reflection
+                    var mi = typeof(CompilationPipeline).GetMethod("GetMessages", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                    if (mi != null)
+                    {
+                        try { msgs = mi.Invoke(null, null) as CompilerMessage[]; } catch { }
+                    }
+                }
+                if (msgs != null)
+                {
+                    string projectRoot = System.IO.Path.GetDirectoryName(Application.dataPath).Replace('\\', '/');
+                    foreach (var cm in msgs)
+                    {
+                        if (cm.type != CompilerMessageType.Error && cm.type != CompilerMessageType.Warning) continue;
+                        string file = cm.file?.Replace('\\', '/') ?? "";
+                        if (!string.IsNullOrEmpty(file) && file.StartsWith(projectRoot)) file = file.Substring(projectRoot.Length + 1);
+                        bool isErr = cm.type == CompilerMessageType.Error;
+                        string formatted = string.IsNullOrEmpty(file)
+                            ? cm.message
+                            : $"{file}({cm.line},{cm.column}): {(isErr ? "error" : "warning")}: {cm.message}";
+                        preserved.Add(new Entry { type = isErr ? LogType.Error : LogType.Warning, tag = "Compiler", rich = formatted, font = null, stack = string.Empty, count = 1 });
+                    }
+                }
+            }
+            catch { /* ignore */ }
+
+            s_all.Clear();
+            s_collapsed.Clear();
+            s_collapseIndex.Clear();
+            s_compilerKeys.Clear();
+            // Re-add preserved compile errors
+            foreach (var e in preserved)
+            {
+                s_all.Add(e);
+                AddCollapsed(e);
+                // add key so they aren't duplicated when compile finishes
+                var key = $"{(int)e.type}|{e.rich}"; // simplified unique for preserved diagnostics
+                s_compilerKeys.Add(key);
+            }
+            Cleared?.Invoke();
+
+            // Clear snapshot (we don't persist compile errors explicitly)
             SessionState.SetBool(SessionKey_HasSnapshot, false);
             SessionState.SetString(SessionKey_Snapshot, "");
         }
@@ -152,7 +271,6 @@ namespace BattleTurn.StyledLog.Editor
 
                 foreach (var d in dto.all)
                 {
-                    // Normalize Exception to Error on load as well
                     var logType = (LogType)d.type;
                     if (logType == LogType.Exception) logType = LogType.Error;
                     var e = new Entry
@@ -172,6 +290,113 @@ namespace BattleTurn.StyledLog.Editor
             catch { return false; }
         }
 
+        internal static void AddCompilerMessages(IEnumerable<CompilerMessage> msgs)
+        {
+            if (msgs == null) return;
+            string projectRoot = System.IO.Path.GetDirectoryName(Application.dataPath).Replace('\\', '/');
+            bool addedAny = false;
+            foreach (var cm in msgs)
+            {
+                LogType lt;
+                if (cm.type == CompilerMessageType.Error) lt = LogType.Error;
+                else if (cm.type == CompilerMessageType.Warning) lt = LogType.Warning;
+                else continue;
+                string file = cm.file?.Replace('\\', '/') ?? string.Empty;
+                if (!string.IsNullOrEmpty(file) && file.StartsWith(projectRoot)) file = file.Substring(projectRoot.Length + 1);
+                string key = $"{(int)lt}|{file}|{cm.line}|{cm.column}|{cm.message}";
+                if (s_compilerKeys.Contains(key)) continue;
+                s_compilerKeys.Add(key);
+                string formatted = string.IsNullOrEmpty(file)
+                    ? cm.message
+                    : $"{file}({cm.line},{cm.column}): {(lt == LogType.Error ? "error" : "warning")}: {cm.message}";
+                var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = string.Empty, count = 1 };
+                s_all.Add(e);
+                AddCollapsed(e);
+                addedAny = true;
+            }
+            if (addedAny)
+            {
+                SaveCompilerDiagnosticsSnapshot();
+                Changed?.Invoke();
+            }
+        }
+
+        internal static void ClearCompilerMessages()
+        {
+            if (s_all.Count == 0) return;
+            bool removed = false;
+            for (int i = s_all.Count - 1; i >= 0; i--)
+            {
+                if (s_all[i].tag == "Compiler") { s_all.RemoveAt(i); removed = true; }
+            }
+            if (removed)
+            {
+                RebuildCollapsed();
+                s_compilerKeys.Clear();
+                Cleared?.Invoke();
+                // Also clear persisted snapshot
+                SessionState.SetString(SessionKey_CompilerSnapshot, string.Empty);
+            }
+        }
+
+        private static void SaveCompilerDiagnosticsSnapshot()
+        {
+            try
+            {
+                var dto = new CompilerMsgListDTO();
+                for (int i = 0; i < s_all.Count; i++)
+                {
+                    var e = s_all[i];
+                    if (e.tag != "Compiler") continue;
+                    // Attempt to extract file/line/col from rich message pattern: file(line,col): error/warning: message
+                    string file = string.Empty; int line = 0; int col = 0; string msg = e.rich;
+                    int paren = e.rich.IndexOf('(');
+                    int close = e.rich.IndexOf(')');
+                    int colon = e.rich.IndexOf(':');
+                    if (paren > 0 && close > paren && colon > close)
+                    {
+                        file = e.rich.Substring(0, paren);
+                        var inside = e.rich.Substring(paren + 1, close - paren - 1);
+                        var parts = inside.Split(',');
+                        if (parts.Length >= 2) { int.TryParse(parts[0], out line); int.TryParse(parts[1], out col); }
+                        msg = e.rich.Substring(colon + 1).Trim();
+                    }
+                    dto.list.Add(new CompilerMsgDTO { type = e.type == LogType.Error ? 2 : (e.type == LogType.Warning ? 1 : 0), file = file, line = line, col = col, message = msg });
+                }
+                var json = JsonUtility.ToJson(dto);
+                SessionState.SetString(SessionKey_CompilerSnapshot, json ?? string.Empty);
+            }
+            catch { /* ignore */ }
+        }
+
+        internal static void LoadCompilerDiagnosticsSnapshot()
+        {
+            try
+            {
+                var json = SessionState.GetString(SessionKey_CompilerSnapshot, string.Empty);
+                if (string.IsNullOrEmpty(json)) return;
+                var dto = JsonUtility.FromJson<CompilerMsgListDTO>(json);
+                if (dto?.list == null || dto.list.Count == 0) return;
+                bool addedAny = false;
+                foreach (var m in dto.list)
+                {
+                    LogType lt = m.type == 2 ? LogType.Error : LogType.Warning; // we only stored errors & warnings
+                    string key = $"{(int)lt}|{m.file}|{m.line}|{m.col}|{m.message}";
+                    if (s_compilerKeys.Contains(key)) continue;
+                    s_compilerKeys.Add(key);
+                    string formatted = string.IsNullOrEmpty(m.file)
+                        ? m.message
+                        : $"{m.file}({m.line},{m.col}): {(lt == LogType.Error ? "error" : "warning")}: {m.message}";
+                    var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = string.Empty, count = 1 };
+                    s_all.Add(e);
+                    AddCollapsed(e);
+                    addedAny = true;
+                }
+                if (addedAny) Changed?.Invoke();
+            }
+            catch { /* ignore */ }
+        }
+
         internal static void ComputeCounts(out int logs, out int warns, out int errors)
         {
             int l = 0, w = 0, e = 0;
@@ -183,6 +408,21 @@ namespace BattleTurn.StyledLog.Editor
                 else if (t == LogType.Error) e++;
             }
             logs = l; warns = w; errors = e;
+        }
+
+        // ───────────────────────────────────────────────────────────────────────────────
+        // Live compiler polling (redundant safety if some events miss per user's environment)
+        private static double s_nextCompilerPollTime; // EditorApplication.timeSinceStartup timestamp
+        internal static void LiveCompilerUpdate()
+        {
+            if (!s_liveCompilerSync) return;
+            // Only poll while compiling OR shortly (2s) after finish to catch stragglers
+            bool compiling = UnityEditor.EditorApplication.isCompiling;
+            double now = UnityEditor.EditorApplication.timeSinceStartup;
+            if (!compiling && now > s_nextCompilerPollTime + 2.0) return;
+            if (now < s_nextCompilerPollTime) return;
+            s_nextCompilerPollTime = now + 0.5; // poll every 0.5s
+            SyncCompilerMessages();
         }
 
         // ───────────────────────────────────────────────────────────────────────────────
@@ -199,7 +439,7 @@ namespace BattleTurn.StyledLog.Editor
         internal bool TagEverything = true;
         // Tag filter set: when non-empty, only rows whose tag is in this set are visible
         private readonly HashSet<string> _enabledTags = new HashSet<string>();
-    internal bool HasExplicitTagSelection => _enabledTags.Count > 0;
+        internal bool HasExplicitTagSelection => _enabledTags.Count > 0;
         internal void SetTagEnabled(string tag, bool enabled)
         {
             if (string.IsNullOrEmpty(tag)) return;
@@ -447,6 +687,19 @@ namespace BattleTurn.StyledLog.Editor
                 if (obj != null) { AssetDatabase.OpenAsset(obj, Mathf.Max(1, f.line)); return; }
             }
             InternalEditorUtility.OpenFileAtLineExternal(abs, Mathf.Max(1, f.line));
+        }
+
+        internal static void OpenAbsolutePath(string absOrRel, int line)
+        {
+            if (string.IsNullOrEmpty(absOrRel)) return;
+            var abs = NormalizeToAbsolutePath(absOrRel);
+            var rel = AbsoluteToUnityPath(abs);
+            if (!string.IsNullOrEmpty(rel))
+            {
+                var obj = AssetDatabase.LoadAssetAtPath<Object>(rel);
+                if (obj != null) { AssetDatabase.OpenAsset(obj, Mathf.Max(1, line)); return; }
+            }
+            InternalEditorUtility.OpenFileAtLineExternal(abs, Mathf.Max(1, line));
         }
 
         internal static string NormalizeToAbsolutePath(string path)

@@ -10,7 +10,7 @@ namespace BattleTurn.StyledLog.Editor
     {
         // Strip <font="..."> tags; IMGUI does not render them and we set Font via GUIStyle.
         private static readonly Regex _fontOpenTagRx = new Regex(@"<font.*?>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-        private static readonly Regex _fileLineRx    = new Regex(@"\(at\s+(.+):(\d+)\)", RegexOptions.Compiled);
+        private static readonly Regex _fileLineRx = new Regex(@"\(at\s+(.+):(\d+)\)", RegexOptions.Compiled);
 
         [DidReloadScripts]
         private static void OnScriptsReloaded()
@@ -73,6 +73,8 @@ namespace BattleTurn.StyledLog.Editor
         }
 
         // Shared list renderer that draws all rows and lets controller handle interactions.
+        internal static GUIContent CompilerIcon; // optional external assignment
+
         public static void DrawRows(
             Rect rect,
             StyledConsoleController controller,
@@ -105,6 +107,8 @@ namespace BattleTurn.StyledLog.Editor
 
                 var iconRect = new Rect(2, rowRect.y + 2, 18, 18);
                 var icon = type == LogType.Error ? iconError : type == LogType.Warning ? iconWarn : iconInfo;
+                if (!string.IsNullOrEmpty(tag) && tag == "Compiler" && CompilerIcon != null && CompilerIcon.image != null)
+                    icon = CompilerIcon;
                 if (icon != null && icon.image != null) GUI.DrawTexture(iconRect, icon.image);
 
                 var typeRect = new Rect(colIconW, rowRect.y, colTypeW - colIconW, rowRect.height);
