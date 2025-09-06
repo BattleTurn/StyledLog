@@ -29,17 +29,17 @@ namespace BattleTurn.StyledLog.Editor
         private const string PrefKey_ClearOnPlay = "StyledConsole.ClearOnPlay";
         private const string PrefKey_ClearOnBuild = "StyledConsole.ClearOnBuild";
         private const string PrefKey_ClearOnRecompile = "StyledConsole.ClearOnRecompile";
-    private const string PrefKey_LiveCompilerSync = "StyledConsole.LiveCompilerSync";
+        private const string PrefKey_LiveCompilerSync = "StyledConsole.LiveCompilerSync";
         private static bool s_clearOnPlay = true;
         private static bool s_clearOnBuild = true;
-    private static bool s_clearOnRecompile = false;
-    private static bool s_liveCompilerSync = true; // new: auto sync compiler diagnostics while compiling
+        private static bool s_clearOnRecompile = false;
+        private static bool s_liveCompilerSync = true; // new: auto sync compiler diagnostics while compiling
         private static bool s_prefsLoaded;
 
         internal static bool ClearOnPlay => s_clearOnPlay;
         internal static bool ClearOnBuild => s_clearOnBuild;
         internal static bool ClearOnRecompile => s_clearOnRecompile;
-    internal static bool LiveCompilerSync => s_liveCompilerSync;
+        internal static bool LiveCompilerSync => s_liveCompilerSync;
 
         internal static event System.Action Cleared;
         internal static void RaiseCleared() => Cleared?.Invoke();
@@ -63,7 +63,7 @@ namespace BattleTurn.StyledLog.Editor
         internal static void TogglePref_ClearOnPlay() { s_clearOnPlay = !s_clearOnPlay; EditorPrefs.SetBool(PrefKey_ClearOnPlay, s_clearOnPlay); }
         internal static void TogglePref_ClearOnBuild() { s_clearOnBuild = !s_clearOnBuild; EditorPrefs.SetBool(PrefKey_ClearOnBuild, s_clearOnBuild); }
         internal static void TogglePref_ClearOnRecompile() { s_clearOnRecompile = !s_clearOnRecompile; EditorPrefs.SetBool(PrefKey_ClearOnRecompile, s_clearOnRecompile); }
-    internal static void TogglePref_LiveCompilerSync() { s_liveCompilerSync = !s_liveCompilerSync; EditorPrefs.SetBool(PrefKey_LiveCompilerSync, s_liveCompilerSync); }
+        internal static void TogglePref_LiveCompilerSync() { s_liveCompilerSync = !s_liveCompilerSync; EditorPrefs.SetBool(PrefKey_LiveCompilerSync, s_liveCompilerSync); }
 
         // emit
         internal static void AddLog(string tag, string richWithFont, LogType type, string stack)
@@ -127,7 +127,9 @@ namespace BattleTurn.StyledLog.Editor
                 string formatted = string.IsNullOrEmpty(file)
                     ? cm.message
                     : $"{file}({cm.line},{cm.column}): {(lt == LogType.Error ? "error" : "warning")}: {cm.message}";
-                var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = string.Empty, count = 1 };
+                // Synthetic stack frame so the file & line appear in the stack list (enables existing preview + double-click logic)
+                string syntheticStack = string.IsNullOrEmpty(file) ? string.Empty : $"Compiler (at {file}:{cm.line})";
+                var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = syntheticStack, count = 1 };
                 s_all.Add(e);
                 AddCollapsed(e);
                 addedAny = true;
@@ -309,7 +311,8 @@ namespace BattleTurn.StyledLog.Editor
                 string formatted = string.IsNullOrEmpty(file)
                     ? cm.message
                     : $"{file}({cm.line},{cm.column}): {(lt == LogType.Error ? "error" : "warning")}: {cm.message}";
-                var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = string.Empty, count = 1 };
+                string syntheticStack = string.IsNullOrEmpty(file) ? string.Empty : $"Compiler (at {file}:{cm.line})";
+                var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = syntheticStack, count = 1 };
                 s_all.Add(e);
                 AddCollapsed(e);
                 addedAny = true;

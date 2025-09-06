@@ -41,6 +41,12 @@ namespace BattleTurn.StyledLog.Editor
         // Tooltip state
         private string _ttAbsPath;
         private int _ttLine;
+    // Debounce state for tooltip
+    private string _ttHoverPath;
+    private int _ttHoverLine;
+    private double _ttHoverStart;
+    private bool _ttShowing;
+    private double _ttLastShowTime;
 
         [MenuItem("Tools/StyledDebug/Styled Console")]
         public static void Open()
@@ -153,7 +159,7 @@ namespace BattleTurn.StyledLog.Editor
         }
 
 
-    private void DrawToolbar()
+        private void DrawToolbar()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
@@ -233,7 +239,7 @@ namespace BattleTurn.StyledLog.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-    private void DrawTagDropdown(Rect rect)
+        private void DrawTagDropdown(Rect rect)
         {
             // Draw label and a small dropdown arrow inside the same header cell
             const float arrowW = 20f;
@@ -311,7 +317,7 @@ namespace BattleTurn.StyledLog.Editor
             menu.ShowAsContext();
         }
 
-    private void DrawRowsAreaLayout(Rect rect)
+        private void DrawRowsAreaLayout(Rect rect)
         {
             // Use shared drawer and delegate input to controller
             StyledConsoleEditorGUI.CompilerIcon = _iconCompiler;
@@ -329,7 +335,7 @@ namespace BattleTurn.StyledLog.Editor
             );
         }
 
-    private void DrawStackPaneLayout(Rect rect)
+        private void DrawStackPaneLayout(Rect rect)
         {
             // draw boxed background
             GUI.Box(rect, GUIContent.none);
@@ -366,6 +372,8 @@ namespace BattleTurn.StyledLog.Editor
                 }
                 catch { /* ignore */ }
             }
+            // Shared hover accumulation for both message inline link and stack frames (debounced later)
+            bool hoveringAny = false; string hoveringPath = null; int hoveringLine = 0; Rect hoveringScreenAnchor = default;
             var msgInner = new Rect(messageRect.x + 6f, messageRect.y + 4f, messageRect.width - 12f, messageRect.height - 8f);
             var msgStyle = new GUIStyle(EditorStyles.label) { richText = true, wordWrap = true };
             float msgContentH = Mathf.Max(18f, msgStyle.CalcHeight(new GUIContent(messageText), msgInner.width - 16f));
@@ -374,36 +382,76 @@ namespace BattleTurn.StyledLog.Editor
             _scrollMessage = GUI.BeginScrollView(msgView, _scrollMessage, msgContent);
             // Render message with basic clickable file path detection when no stacktrace frames
             var msgLabelRect = new Rect(0, 0, msgContent.width, msgContentH);
-            GUI.Label(msgLabelRect, messageText, msgStyle);
-
-            // If stacktrace empty, attempt to detect first file path + optional :line inside message for navigation
-            if (string.IsNullOrEmpty(_controller.SelectedStack()) && !string.IsNullOrEmpty(messageText))
+            // We'll break into segments if we detect path
+            bool drewCustom = false;
+            string detectedPath = null; int detectedLine = 0; Rect detectedLinkRect = default;
+            Color msgLinkColor = EditorGUIUtility.isProSkin ? new Color(0.3f, 0.85f, 0.5f) : new Color(0.05f, 0.6f, 0.25f);
+            var msgLinkStyle = new GUIStyle(msgStyle); msgLinkStyle.normal.textColor = msgLinkColor;
+            GUIContent tempGc;
+            if (!string.IsNullOrEmpty(messageText))
             {
-                // Simple regex: match Assets/... or absolute path ending with .cs optionally followed by :line
-                var rxPath = new Regex(@"(?<path>(?:Assets|Packages)/[^\n\r:]+?\.cs)(?::(?<line>\d+))?", RegexOptions.IgnoreCase);
-                var m = rxPath.Match(messageText);
-                if (m.Success)
+                // Only parse if there is no stack (otherwise stack frames already provide link)
+                if (string.IsNullOrEmpty(_controller.SelectedStack()))
                 {
-                    string rel = m.Groups["path"].Value;
-                    int line = 0; int.TryParse(m.Groups["line"].Value, out line);
-                    string abs = StyledConsoleController.NormalizeToAbsolutePath(rel);
-                    // Approximate clickable rect by measuring text up to match start & match length
-                    string pre = messageText.Substring(0, m.Index);
-                    string hit = messageText.Substring(m.Index, m.Length);
-                    Vector2 preSize = msgStyle.CalcSize(new GUIContent(pre));
-                    Vector2 hitSize = msgStyle.CalcSize(new GUIContent(hit));
-                    var linkRect = new Rect(msgLabelRect.x + preSize.x, msgLabelRect.y, hitSize.x, EditorGUIUtility.singleLineHeight);
-                    EditorGUIUtility.AddCursorRect(linkRect, MouseCursor.Link);
-                    bool hover = linkRect.Contains(Event.current.mousePosition);
-                    if (hover)
+                    var rxPathInline = new Regex(@"(?<path>(?:Assets|Packages)/[^\n\r:<>]+?\.cs)(?:[:(](?<line>\d+)[,)]?)?", RegexOptions.IgnoreCase);
+                    var mInline = rxPathInline.Match(messageText);
+                    if (mInline.Success)
                     {
-                        ConsoleCodeTooltip.ShowAtScreenRect(GUIUtility.GUIToScreenPoint(new Vector2(linkRect.x, linkRect.y + linkRect.height)), this, abs, Mathf.Max(1, line));
-                        if (Event.current.type == EventType.MouseDown && Event.current.clickCount == 2)
-                        {
-                            if (line <= 0) line = 1;
-                            StyledConsoleController.OpenAbsolutePath(abs, line);
-                            Event.current.Use();
-                        }
+                        drewCustom = true;
+                        detectedPath = mInline.Groups["path"].Value;
+                        int.TryParse(mInline.Groups["line"].Value, out detectedLine);
+                        string pre = messageText.Substring(0, mInline.Index);
+                        string hit = messageText.Substring(mInline.Index, mInline.Length);
+                        string post = messageText.Substring(mInline.Index + mInline.Length);
+                        // Draw pre
+                        float x = msgLabelRect.x; float yLine = msgLabelRect.y;
+                        tempGc = new GUIContent(pre);
+                        float preW = msgStyle.CalcSize(tempGc).x;
+                        GUI.Label(new Rect(x, yLine, preW, EditorGUIUtility.singleLineHeight), tempGc, msgStyle);
+                        x += preW;
+                        // Draw link (single line assumption). If multi-line wrap, fallback to simple label.
+                        tempGc = new GUIContent(hit);
+                        float linkW = msgLinkStyle.CalcSize(tempGc).x;
+                        var linkRect = new Rect(x, yLine, linkW, EditorGUIUtility.singleLineHeight);
+                        GUI.Label(linkRect, tempGc, msgLinkStyle);
+                        // underline
+                        var ul = new Rect(linkRect.x, linkRect.yMax - 1f, linkRect.width, 1f);
+                        EditorGUI.DrawRect(ul, msgLinkColor);
+                        x += linkW;
+                        // Draw post
+                        tempGc = new GUIContent(post);
+                        float postW = msgStyle.CalcSize(tempGc).x;
+                        GUI.Label(new Rect(x, yLine, postW, EditorGUIUtility.singleLineHeight), tempGc, msgStyle);
+
+                        detectedLinkRect = linkRect;
+                        EditorGUIUtility.AddCursorRect(linkRect, MouseCursor.Link);
+                    }
+                }
+            }
+            if (!drewCustom)
+            {
+                GUI.Label(msgLabelRect, messageText, msgStyle);
+            }
+
+            // If stacktrace empty (no synthetic frame), attempt regex detection for path:line
+            if (drewCustom && detectedPath != null && detectedLinkRect.width > 0f)
+            {
+                bool hover = detectedLinkRect.Contains(Event.current.mousePosition);
+                if (hover)
+                {
+                    string abs = StyledConsoleController.NormalizeToAbsolutePath(detectedPath);
+                    hoveringAny = true;
+                    hoveringPath = abs;
+                    hoveringLine = detectedLine > 0 ? detectedLine : 1;
+                    // Anchor identical to stacktrace frames (left bias and vertical center adjustment)
+                    Vector2 rectPos = new Vector2(detectedLinkRect.x - 1f, detectedLinkRect.y);
+                    Vector2 linkScreenPoint = GUIUtility.GUIToScreenPoint(rectPos);
+                    linkScreenPoint.y -= ConsoleCodeTooltip.MaxHeight / 2f;
+                    hoveringScreenAnchor = new Rect(linkScreenPoint, new Vector2(1,1));
+                    if (Event.current.type == EventType.MouseDown && Event.current.clickCount == 2)
+                    {
+                        StyledConsoleController.OpenAbsolutePath(abs, hoveringLine);
+                        Event.current.Use();
                     }
                 }
             }
@@ -450,7 +498,7 @@ namespace BattleTurn.StyledLog.Editor
             int lineH = 18;
             var contentRect = new Rect(0, 0, viewRect.width - 16f, Mathf.Max(listH, frames.Count * lineH));
             _scrollStack = GUI.BeginScrollView(viewRect, _scrollStack, contentRect);
-            bool hoveringAny = false;
+            // (Removed duplicate local hover declarations; now shared with message section above)
 
             if (frames.Count == 0)
             {
@@ -496,19 +544,13 @@ namespace BattleTurn.StyledLog.Editor
                         if (hover)
                         {
                             hoveringAny = true;
-                            var abs = StyledConsoleController.NormalizeToAbsolutePath(f.path);
-                            if (_ttAbsPath != abs || _ttLine != f.line)
-                            {
-                                _ttAbsPath = abs; _ttLine = f.line;
-                            }
-
-                            Vector2 rectPos = postRect.position;
-                            rectPos.x -= 1; // Adjust for tooltip to left (for hover into tooltip hand preview code).
+                            hoveringPath = StyledConsoleController.NormalizeToAbsolutePath(f.path);
+                            hoveringLine = f.line;
+                            Vector2 rectPos = postRect.position; rectPos.x -= 1; // left bias
                             Vector2 linkScreenPoint = GUIUtility.GUIToScreenPoint(rectPos);
-                            linkScreenPoint.y -= ConsoleCodeTooltip.MaxHeight / 2; // nudge above link
-                            ConsoleCodeTooltip.ShowAtScreenRect(linkScreenPoint, this, abs, Mathf.Max(1, f.line));
+                            linkScreenPoint.y -= ConsoleCodeTooltip.MaxHeight / 2;
+                            hoveringScreenAnchor = new Rect(linkScreenPoint, new Vector2(1,1));
                         }
-
                         if (Event.current.type == EventType.MouseDown && hover) { StyledConsoleController.OpenFrame(f); Event.current.Use(); }
                     }
                     else
@@ -519,23 +561,54 @@ namespace BattleTurn.StyledLog.Editor
                 }
             }
             GUI.EndScrollView();
-
-            // hide tooltip when not hovering any link
-            if (!hoveringAny && Event.current.type == EventType.Repaint)
+            // Debounce tooltip show/hide to avoid blinking
+            if (Event.current.type == EventType.Repaint)
             {
-                _ttAbsPath = null; _ttLine = 0;
-                ConsoleCodeTooltip.HideIfOwner(this);
+                double now = EditorApplication.timeSinceStartup;
+                if (hoveringAny && !string.IsNullOrEmpty(hoveringPath))
+                {
+                    bool changed = _ttHoverPath != hoveringPath || _ttHoverLine != hoveringLine;
+                    if (changed)
+                    {
+                        _ttHoverPath = hoveringPath;
+                        _ttHoverLine = hoveringLine;
+                        _ttHoverStart = now; // restart dwell timer
+                    }
+                    // show after small dwell (120ms) to prevent rapid flicker when moving between close links
+                    if (!_ttShowing && now - _ttHoverStart > 0.12f)
+                    {
+                        ConsoleCodeTooltip.ShowAtScreenRect(new Vector2(hoveringScreenAnchor.x, hoveringScreenAnchor.y), this, _ttHoverPath, Mathf.Max(1, _ttHoverLine));
+                        _ttShowing = true;
+                        _ttLastShowTime = now;
+                    }
+                    else if (_ttShowing && changed)
+                    {
+                        // update immediately on change once already visible
+                        ConsoleCodeTooltip.ShowAtScreenRect(new Vector2(hoveringScreenAnchor.x, hoveringScreenAnchor.y), this, _ttHoverPath, Mathf.Max(1, _ttHoverLine));
+                        _ttLastShowTime = now;
+                    }
+                }
+                else
+                {
+                    // not hovering: hide after small grace (150ms) to avoid blink when crossing gaps
+                    if (_ttShowing && now - _ttLastShowTime > 0.15f)
+                    {
+                        ConsoleCodeTooltip.HideIfOwner(this);
+                        _ttShowing = false;
+                        _ttHoverPath = null; _ttHoverLine = 0;
+                    }
+                }
             }
         }
 
         // ─────────────────────────────────────────────────────────────────────────────
         // Stack parsing and navigation
 
-    private void DrawStatusBar()
+        private void DrawStatusBar()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-        // compute counts from controller storage
+                // compute counts from controller storage
                 StyledConsoleController.ComputeCounts(out var cLog, out var cWarn, out var cErr);
                 GUILayout.Label($"Log: {cLog}", EditorStyles.miniLabel);
                 GUILayout.Space(10);
@@ -544,7 +617,7 @@ namespace BattleTurn.StyledLog.Editor
                 GUILayout.Label($"Error: {cErr}", EditorStyles.miniLabel);
 
                 GUILayout.FlexibleSpace();
-        GUILayout.Label(_controller.Collapse ? "Collapsed view" : "Full view", EditorStyles.miniLabel);
+                GUILayout.Label(_controller.Collapse ? "Collapsed view" : "Full view", EditorStyles.miniLabel);
             }
         }
     }
