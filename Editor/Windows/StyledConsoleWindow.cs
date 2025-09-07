@@ -163,11 +163,7 @@ namespace BattleTurn.StyledLog.Editor
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                _controller.ShowLog = GUILayout.Toggle(_controller.ShowLog, "Log", EditorStyles.toolbarButton);
-                _controller.ShowWarn = GUILayout.Toggle(_controller.ShowWarn, "Warning", EditorStyles.toolbarButton);
-                _controller.ShowError = GUILayout.Toggle(_controller.ShowError, "Error", EditorStyles.toolbarButton);
-
-                GUILayout.Space(6);
+                // (Log / Warning / Error toggles moved to status bar)
                 _controller.Collapse = GUILayout.Toggle(_controller.Collapse, "Collapse", EditorStyles.toolbarButton);
                 _autoScroll = GUILayout.Toggle(_autoScroll, "Auto-scroll", EditorStyles.toolbarButton);
 
@@ -688,17 +684,77 @@ namespace BattleTurn.StyledLog.Editor
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                // compute counts from controller storage
+                // Reverted layout: individual toggles with overlaid badges (unified badge draw function)
                 StyledConsoleController.ComputeCounts(out var cLog, out var cWarn, out var cErr);
-                GUILayout.Label($"Log: {cLog}", EditorStyles.miniLabel);
-                GUILayout.Space(10);
-                GUILayout.Label($"Warning: {cWarn}", EditorStyles.miniLabel);
-                GUILayout.Space(10);
-                GUILayout.Label($"Error: {cErr}", EditorStyles.miniLabel);
+                bool changed = false;
+                var btnStyle = EditorStyles.toolbarButton;
+
+                GUIContent gcLog = _iconInfo != null ? new GUIContent(_iconInfo.image, "Show Logs") : new GUIContent("Log");
+                GUIContent gcWarn = _iconWarn != null ? new GUIContent(_iconWarn.image, "Show Warnings") : new GUIContent("Warn");
+                GUIContent gcErr = _iconError != null ? new GUIContent(_iconError.image, "Show Errors") : new GUIContent("Err");
+
+                bool newLog = GUILayout.Toggle(_controller.ShowLog, gcLog, btnStyle, GUILayout.Width(46));
+                var logRect = GUILayoutUtility.GetLastRect();
+                if (newLog != _controller.ShowLog) { _controller.ShowLog = newLog; changed = true; }
+
+                bool newWarn = GUILayout.Toggle(_controller.ShowWarn, gcWarn, btnStyle, GUILayout.Width(46));
+                var warnRect = GUILayoutUtility.GetLastRect();
+                if (newWarn != _controller.ShowWarn) { _controller.ShowWarn = newWarn; changed = true; }
+
+                bool newErr = GUILayout.Toggle(_controller.ShowError, gcErr, btnStyle, GUILayout.Width(46));
+                var errRect = GUILayoutUtility.GetLastRect();
+                if (newErr != _controller.ShowError) { _controller.ShowError = newErr; changed = true; }
+
+                // Draw count badges (top-right overlay, small so it doesn't hide icon)
+                DrawCountBadge(logRect, cLog, new Color(0.25f,0.55f,0.95f,1f));
+                DrawCountBadge(warnRect, cWarn, new Color(0.95f,0.75f,0.25f,1f));
+                DrawCountBadge(errRect, cErr, new Color(0.85f,0.25f,0.25f,1f));
 
                 GUILayout.FlexibleSpace();
-                GUILayout.Label(_controller.Collapse ? "Collapsed view" : "Full view", EditorStyles.miniLabel);
+                if (changed)
+                {
+                    _controller.BuildVisible();
+                    Repaint();
+                }
             }
+        }
+
+        private static GUIStyle _badgeStyle;
+        private void DrawCountBadge(Rect host, int count, Color color)
+        {
+            if (count <= 0) return;
+            if (_badgeStyle == null)
+            {
+                // Non-bold label for badge
+                _badgeStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 11,
+                    padding = new RectOffset(0,0,0,0),
+                    clipping = TextClipping.Clip
+                };
+            }
+            string txt = count > 999 ? "999+" : count.ToString();
+            float wBase = txt.Length <= 2 ? 18f : (txt.Length == 3 ? 24f : 34f);
+            float w = wBase - 4f; // shrink width an additional 2px
+            float h = 10f; // reduced height by 2px
+            // Place badge tight to right edge inside button to minimize icon overlap
+            var r = new Rect(
+                Mathf.Round(host.x + host.width - w - 4f), // anchor to right with 4px inset (moved left 2px)
+                Mathf.Round(host.y + 1f),
+                w,
+                h);
+            var bg = new Color(color.r, color.g, color.b, 0.85f);
+            EditorGUI.DrawRect(r, bg);
+            var outline = new Color(0,0,0,0.45f);
+            EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 1f), outline);
+            EditorGUI.DrawRect(new Rect(r.x, r.yMax-1f, r.width, 1f), outline);
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 1f, r.height), outline);
+            EditorGUI.DrawRect(new Rect(r.xMax-1f, r.y, 1f, r.height), outline);
+            var oldColor = GUI.color;
+            GUI.color = Color.black;
+            GUI.Label(r, txt, _badgeStyle);
+            GUI.color = oldColor;
         }
     }
 }
