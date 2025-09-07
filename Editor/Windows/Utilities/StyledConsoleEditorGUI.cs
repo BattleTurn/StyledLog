@@ -107,9 +107,27 @@ namespace BattleTurn.StyledLog.Editor
 
                 var iconRect = new Rect(2, rowRect.y + 2, 18, 18);
                 var icon = type == LogType.Error ? iconError : type == LogType.Warning ? iconWarn : iconInfo;
-                if (!string.IsNullOrEmpty(tag) && tag == "Compiler" && CompilerIcon != null && CompilerIcon.image != null)
-                    icon = CompilerIcon;
-                if (icon != null && icon.image != null) GUI.DrawTexture(iconRect, icon.image);
+                bool isCompilerTag = !string.IsNullOrEmpty(tag) && tag == "Compiler" && CompilerIcon != null && CompilerIcon.image != null;
+                if (isCompilerTag)
+                {
+                    // Draw base compiler icon first
+                    GUI.DrawTexture(iconRect, CompilerIcon.image, ScaleMode.ScaleToFit);
+                    // Overlay small severity badge (bottom-right)
+                    Texture severityTex = null;
+                    if (type == LogType.Error && iconError != null) severityTex = iconError.image;
+                    else if (type == LogType.Warning && iconWarn != null) severityTex = iconWarn.image;
+                    else if (iconInfo != null) severityTex = iconInfo.image;
+                    if (severityTex != null)
+                    {
+                        const float badgeSize = 9f; // small badge
+                        var badgeRect = new Rect(iconRect.xMax - badgeSize, iconRect.yMax - badgeSize, badgeSize, badgeSize);
+                        GUI.DrawTexture(badgeRect, severityTex, ScaleMode.ScaleToFit);
+                    }
+                }
+                else
+                {
+                    if (icon != null && icon.image != null) GUI.DrawTexture(iconRect, icon.image, ScaleMode.ScaleToFit);
+                }
 
                 var typeRect = new Rect(colIconW, rowRect.y, colTypeW - colIconW, rowRect.height);
                 GUI.Label(typeRect, type.ToString(), EditorStyles.miniLabel);

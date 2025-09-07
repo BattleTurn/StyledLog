@@ -67,8 +67,30 @@ namespace BattleTurn.StyledLog.Editor
             _iconInfo = EditorGUIUtility.IconContent("console.infoicon");
             _iconWarn = EditorGUIUtility.IconContent("console.warnicon");
             _iconError = EditorGUIUtility.IconContent("console.erroricon");
-            _iconCompiler = EditorGUIUtility.IconContent("d_UnityEditor.ConsoleWindow");
-            if (_iconCompiler == null || _iconCompiler.image == null) _iconCompiler = _iconWarn;
+            // Load custom compiler icon from Resources (Packages/StyleLog/Runtime/Resources/compiler_icon.png expected)
+            var compilerTex = Resources.Load<Texture2D>("compiler_icon");
+            if (compilerTex == null)
+            {
+                // Fallback: attempt direct asset path (package path variants)
+                compilerTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Packages/StyleLog/Runtime/Resources/compiler_icon.png");
+                if (compilerTex == null)
+                    compilerTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Packages/styled-log/Runtime/Resources/compiler_icon.png");
+            }
+            if (compilerTex != null)
+            {
+                _iconCompiler = new GUIContent(compilerTex);
+            }
+            else
+            {
+                // Fallback priority for representing code/assemblies:
+                // 1. Assembly Definition asset icon (dark/light)
+                // 2. Assembly icon (dark/light)
+                // 3. C# script icon (dark/light)
+                // 4. Warning icon as ultimate fallback
+                _iconCompiler = EditorGUIUtility.IconContent("cs Script Icon");
+                if (_iconCompiler == null || _iconCompiler.image == null)
+                    _iconCompiler = _iconWarn; // absolute fallback
+            }
 
             StyledDebug.onEmit -= OnEmit; StyledDebug.onEmit += OnEmit;
             StyledConsoleController.Cleared -= HandleCleared; StyledConsoleController.Cleared += HandleCleared;

@@ -74,6 +74,25 @@ namespace BattleTurn.StyledLog.Editor
                     var r = StyledDebugBenchmark.RunMany(_style.Tag, 1000, new StyledText(_message, _style));
                     Debug.Log($"[StyledDebug Tester] 1000x avg: time={r.milliseconds:F4} ms, memDelta={r.bytes} bytes, outLen={r.outputLength}");
                 }
+
+                EditorGUILayout.Space(10);
+                EditorGUILayout.LabelField("Compiler Log Tests", EditorStyles.boldLabel);
+                EditorGUILayout.HelpBox("Các nút dưới sẽ phát sinh log với tag 'Compiler' mô phỏng output của trình biên dịch để test icon compiler + badge severity, trimming message và link path.", MessageType.Info);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Compiler Info"))
+                    {
+                        EmitCompilerLike("info", LogType.Log, "This is a simulated compiler info message");
+                    }
+                    if (GUILayout.Button("Compiler Warning"))
+                    {
+                        EmitCompilerLike("warning", LogType.Warning, "Simulated potential issue (unused variable)");
+                    }
+                    if (GUILayout.Button("Compiler Error"))
+                    {
+                        EmitCompilerLike("error", LogType.Error, "Simulated syntax error: unexpected token");
+                    }
+                }
             }
 
             EditorGUILayout.EndScrollView();
@@ -139,6 +158,28 @@ namespace BattleTurn.StyledLog.Editor
             long afterMem = System.GC.GetTotalMemory(false);
 
             Debug.Log($"[StyledDebug Tester] once: time={sw.Elapsed.TotalMilliseconds:F4} ms, memDelta={afterMem - beforeMem} bytes");
+        }
+
+        private void EmitCompilerLike(string severityToken, LogType type, string msg)
+        {
+            // Pattern: Assets/Path/File.cs(line,col): severity: message
+            string fakePath = "Assets/Tests/CompilerTest.cs";
+            int line = Random.Range(5, 120);
+            int col = Random.Range(1, 40);
+            string full = $"{fakePath}({line},{col}): {severityToken}: {msg}";
+            var styled = new StyledText(full, _style); // style optional
+            switch (type)
+            {
+                case LogType.Error:
+                    StyledDebug.LogError("Compiler", styled);
+                    break;
+                case LogType.Warning:
+                    StyledDebug.LogWarning("Compiler", styled);
+                    break;
+                default:
+                    StyledDebug.Log("Compiler", styled);
+                    break;
+            }
         }
     }
 }
