@@ -87,6 +87,43 @@ new StyledText("From setting", s);
 
 Styled Console subscribes to Unity’s `Application.logMessageReceived` in the Editor and mirrors those entries. Messages originating from StyledDebug are not duplicated. Unity `Exception` entries are displayed as `Error` for consistent filtering.
 
+### Compiler diagnostics (C# script / assembly errors)
+
+When the C# compiler produces messages, they are surfaced in Styled Console under the special tag `Compiler`:
+
+- Custom compiler icon (assembly/code themed) with a tiny severity badge (error / warning / info) overlaid bottom‑right.
+- Live sync: existing compiler messages are re-synced whenever the window enables (no need to press a button).
+- Message trimming: the leading `Path/File.cs(line,col): severity:` prefix is collapsed in the upper message panel so you focus on the actual text; the original path and line remain accessible through the stack frame / inline link.
+- Double‑click the row or the highlighted link to open the file at the reported line.
+
+You can also emit simulated compiler messages (see Tester window section) to visually test styles without forcing a recompile.
+
+### Inline file link detection in message body
+
+If a log message itself contains the first occurrence of a relative project path like `Assets/.../SomeFile.cs(123)` (or `Packages/...`), and there is no stack trace, Styled Console parses just that first path occurrence and turns it into a clickable link (green underline). Double‑click (or single click if you customize) opens the file at the detected line. Long tokens are soft‑wrapped to prevent horizontal scroll overflow.
+
+### Tester window & benchmarking
+
+Open via: `Tools > StyledDebug > Tester`.
+
+Provides a focused environment to:
+
+- Preview a `StyleSetting` (resolved color, font(s), style flags) and its generated rich text.
+- Log / Warning / Error directly with the chosen style.
+- Run a micro benchmark ("Benchmark x1000") to measure mean construction cost (time, GC delta, output length) for a given styled message.
+- Emit simulated compiler diagnostics (Info / Warning / Error) using the canonical pattern `Assets/Tests/CompilerTest.cs(line,col): severity: message` to verify:
+  - Compiler tag filtering
+  - Icon + severity badge overlay
+  - Message trimming behavior
+  - Inline path link detection
+
+Example (benchmark usage in code):
+
+```csharp
+var r = StyledDebugBenchmark.RunMany("Net", 1000, new StyledText("Ping ok", someStyleSetting));
+Debug.Log($"avg: {r.milliseconds:F3} ms, bytes={r.bytes}, outLen={r.outputLength}");
+```
+
 ## Extending (optional)
 
 Listen to logs for custom sinks (file, UI, network):
