@@ -146,6 +146,36 @@ namespace BattleTurn.StyledLog.Editor
             GUI.EndScrollView();
         }
 
+        // Shared inline file link renderer (prefix + clickable link + optional suffix)
+        // Returns true if link drawn; outputs linkRect for hover/click handling.
+        public static bool DrawInlineFileLink(Rect row, string prefix, string linkText, string suffix, GUIStyle baseStyle, GUIStyle linkStyle, Color underlineColor, out Rect linkRect)
+        {
+            linkRect = default;
+            if (row.width <= 4f) return false;
+            float x = row.x;
+            float y = row.y;
+            if (!string.IsNullOrEmpty(prefix))
+            {
+                var preSize = baseStyle.CalcSize(new GUIContent(prefix));
+                GUI.Label(new Rect(x, y, preSize.x, row.height), prefix, baseStyle);
+                x += preSize.x;
+            }
+            if (string.IsNullOrEmpty(linkText)) return false;
+            var lSize = linkStyle.CalcSize(new GUIContent(linkText));
+            linkRect = new Rect(x, y, lSize.x, row.height);
+            EditorGUIUtility.AddCursorRect(linkRect, MouseCursor.Link);
+            GUI.Label(linkRect, linkText, linkStyle);
+            var ul = new Rect(linkRect.x, linkRect.yMax - 1f, Mathf.Min(linkRect.width, row.xMax - linkRect.x), 1f);
+            EditorGUI.DrawRect(ul, underlineColor);
+            x += lSize.x;
+            if (!string.IsNullOrEmpty(suffix) && x < row.xMax)
+            {
+                var sufSize = baseStyle.CalcSize(new GUIContent(suffix));
+                GUI.Label(new Rect(x, y, Mathf.Min(sufSize.x, row.xMax - x), row.height), suffix, baseStyle);
+            }
+            return true;
+        }
+
         // Thin vertical splitter (with drag handle area).
         public static void DrawVSplitter(Rect r, System.Action<float> onDragDelta, System.Action onFinish)
         {
@@ -241,8 +271,9 @@ namespace BattleTurn.StyledLog.Editor
             float toolbarH = EditorStyles.toolbar.fixedHeight > 0 ? EditorStyles.toolbar.fixedHeight : height;
             if (toolbarH > height)
             {
+                // Center then nudge up 1px for better optical alignment with other toolbar controls
                 float yOff = (toolbarH - height) * 0.5f;
-                r.y += Mathf.Floor(yOff);
+                r.y += Mathf.Round(yOff); // moved down 1px (removed previous -1f nudge)
             }
             bool hasText = !string.IsNullOrEmpty(value);
             float btnSize = Mathf.Clamp(height - 4f, 12f, 20f);
@@ -276,7 +307,7 @@ namespace BattleTurn.StyledLog.Editor
                 {
                     // Fallback simple X
                     var oldColor = GUI.color;
-                    GUI.color = new Color(0.8f,0.8f,0.8f,1f);
+                    GUI.color = new Color(0.8f, 0.8f, 0.8f, 1f);
                     GUI.Label(btnRect, "x", EditorStyles.centeredGreyMiniLabel);
                     GUI.color = oldColor;
                 }

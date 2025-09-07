@@ -32,7 +32,7 @@ namespace BattleTurn.StyledLog.Editor
         private static readonly List<Entry> s_collapsed = new();
         private static readonly Dictionary<string, Entry> s_collapseIndex = new();
         // Track compiler messages already ingested (key: type|file|line|col|msg)
-        private static readonly HashSet<string> s_compilerKeys = new();
+    private static readonly HashSet<string> s_compilerKeys = new();
         // Persist compiler diagnostics across domain reload even when ClearOnRecompile is ON
         private const string SessionKey_CompilerSnapshot = "StyledConsole.CompilerSnapshot";
 
@@ -159,7 +159,7 @@ namespace BattleTurn.StyledLog.Editor
         }
 
         // Sync current compiler messages (warnings + errors) into log list
-        internal static void SyncCompilerMessages()
+    internal static void SyncCompilerMessages()
         {
             CompilerMessage[] msgs = null;
             try { msgs = (CompilerMessage[])typeof(CompilationPipeline).GetProperty("compilerMessages")?.GetValue(null, null); } catch { }
@@ -189,7 +189,7 @@ namespace BattleTurn.StyledLog.Editor
                 string formatted = string.IsNullOrEmpty(file)
                     ? cm.message
                     : $"{file}({cm.line},{cm.column}): {(lt == LogType.Error ? "error" : "warning")}: {cm.message}";
-                // Synthetic stack frame so the file & line appear in the stack list (enables existing preview + double-click logic)
+                // Synthetic stack frame so stacktrace pane has clickable link
                 string syntheticStack = string.IsNullOrEmpty(file) ? string.Empty : $"Compiler (at {file}:{cm.line})";
                 var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = syntheticStack, count = 1 };
                 s_all.Add(e);
@@ -334,7 +334,7 @@ namespace BattleTurn.StyledLog.Editor
             catch { return false; }
         }
 
-        internal static void AddCompilerMessages(IEnumerable<CompilerMessage> msgs)
+    internal static void AddCompilerMessages(IEnumerable<CompilerMessage> msgs)
         {
             if (msgs == null) return;
             string projectRoot = System.IO.Path.GetDirectoryName(Application.dataPath).Replace('\\', '/');
@@ -414,7 +414,7 @@ namespace BattleTurn.StyledLog.Editor
             catch { /* ignore */ }
         }
 
-        internal static void LoadCompilerDiagnosticsSnapshot()
+    internal static void LoadCompilerDiagnosticsSnapshot()
         {
             try
             {
@@ -432,7 +432,8 @@ namespace BattleTurn.StyledLog.Editor
                     string formatted = string.IsNullOrEmpty(m.file)
                         ? m.message
                         : $"{m.file}({m.line},{m.col}): {(lt == LogType.Error ? "error" : "warning")}: {m.message}";
-                    var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = string.Empty, count = 1 };
+                    string syntheticStack = string.IsNullOrEmpty(m.file) ? string.Empty : $"Compiler (at {m.file}:{m.line})";
+                    var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = syntheticStack, count = 1 };
                     s_all.Add(e);
                     AddCollapsed(e);
                     addedAny = true;

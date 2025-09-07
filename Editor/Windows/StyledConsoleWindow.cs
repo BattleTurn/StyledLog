@@ -8,6 +8,8 @@ namespace BattleTurn.StyledLog.Editor
 {
     public class StyledConsoleWindow : EditorWindow
     {
+        private const string PrefKey_AutoScroll = "StyledConsole.AutoScroll";
+        private const string PrefKey_Collapse = "StyledConsole.Collapse";
         // Per-window controller (global storage is static inside controller)
         private readonly StyledConsoleController _controller = new();
 
@@ -26,7 +28,7 @@ namespace BattleTurn.StyledLog.Editor
         private float _colTagW = 160f;
         private const float MinColW = 60f;
         private const float SplitW = 4f;
-    private bool _dragIconSplit, _dragTypeSplit, _dragTagSplit;
+        private bool _dragIconSplit, _dragTypeSplit, _dragTagSplit;
 
         // Vertical split (row list vs stack pane)
         private float _stackFrac = 0.38f; // bottom pane fraction
@@ -41,12 +43,12 @@ namespace BattleTurn.StyledLog.Editor
         // Tooltip state
         private string _ttAbsPath;
         private int _ttLine;
-    // Debounce state for tooltip
-    private string _ttHoverPath;
-    private int _ttHoverLine;
-    private double _ttHoverStart;
-    private bool _ttShowing;
-    private double _ttLastShowTime;
+        // Debounce state for tooltip
+        private string _ttHoverPath;
+        private int _ttHoverLine;
+        private double _ttHoverStart;
+        private bool _ttShowing;
+        private double _ttLastShowTime;
 
         [MenuItem("Tools/StyledDebug/Styled Console")]
         public static void Open()
@@ -59,6 +61,9 @@ namespace BattleTurn.StyledLog.Editor
         private void OnEnable()
         {
             StyledConsoleController.EnsurePrefsLoaded();
+            // Load persisted simple UI prefs
+            _autoScroll = EditorPrefs.GetBool(PrefKey_AutoScroll, true);
+            _controller.Collapse = EditorPrefs.GetBool(PrefKey_Collapse, false);
             _iconInfo = EditorGUIUtility.IconContent("console.infoicon");
             _iconWarn = EditorGUIUtility.IconContent("console.warnicon");
             _iconError = EditorGUIUtility.IconContent("console.erroricon");
@@ -164,14 +169,25 @@ namespace BattleTurn.StyledLog.Editor
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
                 // (Log / Warning / Error toggles moved to status bar)
+                bool oldCollapse = _controller.Collapse;
+                bool oldAuto = _autoScroll;
                 _controller.Collapse = GUILayout.Toggle(_controller.Collapse, "Collapse", EditorStyles.toolbarButton);
                 _autoScroll = GUILayout.Toggle(_autoScroll, "Auto-scroll", EditorStyles.toolbarButton);
+                if (_controller.Collapse != oldCollapse)
+                {
+                    EditorPrefs.SetBool(PrefKey_Collapse, _controller.Collapse);
+                    if (_controller.Collapse) StyledConsoleController.RebuildCollapsed();
+                }
+                if (_autoScroll != oldAuto)
+                {
+                    EditorPrefs.SetBool(PrefKey_AutoScroll, _autoScroll);
+                }
 
                 GUILayout.FlexibleSpace();
 
                 _controller.Search = StyledConsoleEditorGUI.ToolbarSearch(_controller.Search, 180f);
 
-                // Clear
+                GUILayout.Space(2f); // exact 2px gap between search field and Clear button
                 if (GUILayout.Button("Clear", EditorStyles.toolbarButton)) StyledConsoleController.ClearPreserveCompileErrors();
 
                 // (Sync Compiler button removed – auto-sync active)
@@ -193,7 +209,6 @@ namespace BattleTurn.StyledLog.Editor
             // Rebuild collapsed view when toggled
             if (Event.current.type == EventType.Repaint && GUI.changed)
             {
-                if (_controller.Collapse) StyledConsoleController.RebuildCollapsed();
                 if (_controller.SelectedIndex >= _controller.GetVisibleCount()) _controller.SelectedIndex = _controller.GetVisibleCount() - 1;
             }
         }
@@ -207,24 +222,24 @@ namespace BattleTurn.StyledLog.Editor
             // Compute column rects
             var iconRect = new Rect(outer.x, outer.y, _colIconW, outer.height);
             var typeRect = new Rect(iconRect.xMax, outer.y, _colTypeW - _colIconW, outer.height);
-            var tagRect  = new Rect(_colTypeW, outer.y, _colTagW, outer.height);
-            var msgRect  = new Rect(_colTypeW + _colTagW, outer.y, outer.width - (_colTypeW + _colTagW), outer.height);
+            var tagRect = new Rect(_colTypeW, outer.y, _colTagW, outer.height);
+            var msgRect = new Rect(_colTypeW + _colTagW, outer.y, outer.width - (_colTypeW + _colTagW), outer.height);
 
             // Draw cells (each draws its own right separator except last)
-                        DrawHeaderCell(iconRect, () => DrawHeaderLabel(iconRect, "Icon"), true,
-                            dx => { _dragIconSplit = true; float minIcon = 12f; float maxIcon = Mathf.Max(minIcon, _colTypeW - 40f); _colIconW = Mathf.Clamp(_colIconW + dx, minIcon, maxIcon); Repaint(); },
-                            () => { _dragIconSplit = false; });
-                        DrawHeaderCell(typeRect, () => DrawHeaderLabel(typeRect, "Type"), true,
-                            dx => { _dragTypeSplit = true; _colTypeW = Mathf.Max(MinColW, _colTypeW + dx); Repaint(); },
-                            () => { _dragTypeSplit = false; });
-                        DrawHeaderCell(tagRect, () => DrawHeaderCellTag(tagRect), true,
-                            dx => { _dragTagSplit = true; _colTagW = Mathf.Max(MinColW, _colTagW + dx); Repaint(); },
-                            () => { _dragTagSplit = false; });
-                        DrawHeaderCell(msgRect, () => DrawHeaderLabel(msgRect, "Message"), false, null, null);
+            DrawHeaderCell(iconRect, () => DrawHeaderLabel(iconRect, "Icon"), true,
+                dx => { _dragIconSplit = true; float minIcon = 12f; float maxIcon = Mathf.Max(minIcon, _colTypeW - 40f); _colIconW = Mathf.Clamp(_colIconW + dx, minIcon, maxIcon); Repaint(); },
+                () => { _dragIconSplit = false; });
+            DrawHeaderCell(typeRect, () => DrawHeaderLabel(typeRect, "Type"), true,
+                dx => { _dragTypeSplit = true; _colTypeW = Mathf.Max(MinColW, _colTypeW + dx); Repaint(); },
+                () => { _dragTypeSplit = false; });
+            DrawHeaderCell(tagRect, () => DrawHeaderCellTag(tagRect), true,
+                dx => { _dragTagSplit = true; _colTagW = Mathf.Max(MinColW, _colTagW + dx); Repaint(); },
+                () => { _dragTagSplit = false; });
+            DrawHeaderCell(msgRect, () => DrawHeaderLabel(msgRect, "Message"), false, null, null);
 
             // Bottom line
             var line = new Rect(outer.x, outer.yMax - 1f, outer.width, 1f);
-            EditorGUI.DrawRect(line, new Color(0,0,0,0.2f));
+            EditorGUI.DrawRect(line, new Color(0, 0, 0, 0.2f));
         }
 
         private static GUIStyle _headerLabelStyle;
@@ -235,7 +250,7 @@ namespace BattleTurn.StyledLog.Editor
                 _headerLabelStyle = new GUIStyle(EditorStyles.miniLabel)
                 {
                     alignment = TextAnchor.MiddleLeft,
-                    padding = new RectOffset(0,0,0,0)
+                    padding = new RectOffset(0, 0, 0, 0)
                 };
             }
             var gc = new GUIContent(text);
@@ -323,23 +338,23 @@ namespace BattleTurn.StyledLog.Editor
             menu.ShowAsContext();
         }
         // Draw a single header cell (content via drawer) and an optional vertical separator on the right
-                private void DrawHeaderCell(Rect rect, System.Action drawer, bool drawSeparator, System.Action<float> onDrag, System.Action onFinish)
+        private void DrawHeaderCell(Rect rect, System.Action drawer, bool drawSeparator, System.Action<float> onDrag, System.Action onFinish)
         {
             drawer?.Invoke();
-                bool hasDrag = onDrag != null;
-                // Only draw static separator if no draggable splitter (avoid double line look)
-                if (drawSeparator && !hasDrag)
-                {
-                    var sepLine = new Rect(rect.xMax - 1f, rect.y + 1f, 1f, rect.height - 2f);
-                    EditorGUI.DrawRect(sepLine, new Color(0,0,0,0.28f));
-                }
-                if (hasDrag)
-                {
-                    var hit = new Rect(rect.xMax - 3f, rect.y, 6f, rect.height);
-                    StyledConsoleEditorGUI.DrawVSplitter(hit,
-                        dx => { onDrag(dx); },
-                        () => { onFinish?.Invoke(); });
-                }
+            bool hasDrag = onDrag != null;
+            // Only draw static separator if no draggable splitter (avoid double line look)
+            if (drawSeparator && !hasDrag)
+            {
+                var sepLine = new Rect(rect.xMax - 1f, rect.y + 1f, 1f, rect.height - 2f);
+                EditorGUI.DrawRect(sepLine, new Color(0, 0, 0, 0.28f));
+            }
+            if (hasDrag)
+            {
+                var hit = new Rect(rect.xMax - 3f, rect.y, 6f, rect.height);
+                StyledConsoleEditorGUI.DrawVSplitter(hit,
+                    dx => { onDrag(dx); },
+                    () => { onFinish?.Invoke(); });
+            }
         }
 
         private void DrawHeaderCellTag(Rect rect)
@@ -416,22 +431,9 @@ namespace BattleTurn.StyledLog.Editor
             // draw boxed background
             GUI.Box(rect, GUIContent.none);
 
-            // toolbar
-            float y = rect.y + 2f;
-            var toolbarRect = new Rect(rect.x + 4f, y, rect.width - 8f, 20f);
-            GUI.Box(toolbarRect, GUIContent.none, EditorStyles.toolbar);
-            var lblRect = new Rect(toolbarRect.x + 6f, toolbarRect.y, 200f, toolbarRect.height);
-            GUI.Label(lblRect, "Stack Trace", EditorStyles.miniBoldLabel);
-            var copyRect = new Rect(toolbarRect.xMax - 60f, toolbarRect.y + 1f, 56f, toolbarRect.height - 2f);
-            if (GUI.Button(copyRect, "Copy", EditorStyles.toolbarButton))
-            {
-                var stackText = _controller.SelectedStack();
-                EditorGUIUtility.systemCopyBuffer = stackText ?? string.Empty;
-            }
-
             // Message view (above stacktrace) with its own scroll when long
             // Compute a local split within the stack pane between message and frames
-            float contentTop = toolbarRect.yMax + 4f;
+            float contentTop = rect.y + 4f; // was toolbarRect.yMax + 4f when header existed
             float contentBottom = rect.yMax - 4f;
             float totalH = Mathf.Max(0f, contentBottom - contentTop);
             float desiredMsgH = Mathf.Clamp(totalH * _stackMessageFrac, MinMessageH, Mathf.Max(MinMessageH, totalH - MinFramesH));
@@ -439,96 +441,135 @@ namespace BattleTurn.StyledLog.Editor
             GUI.Box(messageRect, GUIContent.none, EditorStyles.helpBox);
 
             string messageText = string.Empty;
+            bool isCompiler = false;
             if (_controller.GetVisibleCount() > 0 && _controller.SelectedIndex >= 0)
             {
                 try
                 {
-                    _controller.GetVisibleRow(_controller.SelectedIndex, out _, out _, out var rich, out _, out _, out _);
+                    _controller.GetVisibleRow(_controller.SelectedIndex, out var type, out var tag, out var rich, out _, out _, out _);
+                    isCompiler = tag == "Compiler";
                     messageText = rich ?? string.Empty;
                 }
                 catch { /* ignore */ }
+            }
+            // If compiler message like: path(line,col): error/warning: msg  keep only trailing message part for readability (stack frame still shows file)
+            if (isCompiler && !string.IsNullOrEmpty(messageText))
+            {
+                // pattern: something.cs(line,col): error|warning: rest
+                int firstColon = messageText.IndexOf(':');
+                if (firstColon > 0)
+                {
+                    // find second colon after error/warning token
+                    int secondColon = messageText.IndexOf(':', firstColon + 1);
+                    if (secondColon > firstColon && secondColon + 1 < messageText.Length)
+                    {
+                        string tail = messageText.Substring(secondColon + 1).Trim();
+                        if (tail.Length > 0) messageText = tail;
+                    }
+                }
             }
             // Shared hover accumulation for both message inline link and stack frames (debounced later)
             bool hoveringAny = false; string hoveringPath = null; int hoveringLine = 0; Rect hoveringScreenAnchor = default;
             var msgInner = new Rect(messageRect.x + 6f, messageRect.y + 4f, messageRect.width - 12f, messageRect.height - 8f);
             var msgStyle = new GUIStyle(EditorStyles.label) { richText = true, wordWrap = true };
-            float msgContentH = Mathf.Max(18f, msgStyle.CalcHeight(new GUIContent(messageText), msgInner.width - 16f));
+            // Compute dynamic wrap threshold based on current width & average char size (fallback 12 if huge font)
+            var charSize = msgStyle.CalcSize(new GUIContent("W"));
+            int dynamicMaxRun = Mathf.Max(8, Mathf.FloorToInt((msgInner.width - 12f) / Mathf.Max(1f, charSize.x)) - 1);
+            // Prepare a display variant with soft wraps for very long unbroken tokens so they don't overflow horizontally.
+            string displayMessageText = InsertSoftWraps(messageText, dynamicMaxRun);
+            float msgContentH = Mathf.Max(18f, msgStyle.CalcHeight(new GUIContent(displayMessageText), msgInner.width - 16f));
             var msgView = new Rect(msgInner.x, msgInner.y, msgInner.width, msgInner.height);
             var msgContent = new Rect(0, 0, msgInner.width - 16f, msgContentH + 4f);
             _scrollMessage = GUI.BeginScrollView(msgView, _scrollMessage, msgContent);
-            // Render message with basic clickable file path detection when no stacktrace frames
+            // Wrapped message with clickable first path occurrence.
             var msgLabelRect = new Rect(0, 0, msgContent.width, msgContentH);
-            // We'll break into segments if we detect path
-            bool drewCustom = false;
             string detectedPath = null; int detectedLine = 0; Rect detectedLinkRect = default;
-            Color msgLinkColor = EditorGUIUtility.isProSkin ? new Color(0.3f, 0.85f, 0.5f) : new Color(0.05f, 0.6f, 0.25f);
-            var msgLinkStyle = new GUIStyle(msgStyle); msgLinkStyle.normal.textColor = msgLinkColor;
-            GUIContent tempGc;
-            if (!string.IsNullOrEmpty(messageText))
+            List<Rect> messageLinkRects = null;
+            if (!string.IsNullOrEmpty(messageText) && string.IsNullOrEmpty(_controller.SelectedStack()))
             {
-                // Only parse if there is no stack (otherwise stack frames already provide link)
-                if (string.IsNullOrEmpty(_controller.SelectedStack()))
+                var rxPathInline = new Regex(@"(?<path>(?:Assets|Packages)/[^\n\r:<>]+?\.cs)(?:[:(](?<line>\d+)[,)]?)?", RegexOptions.IgnoreCase);
+                var mInline = rxPathInline.Match(messageText);
+                if (mInline.Success)
                 {
-                    var rxPathInline = new Regex(@"(?<path>(?:Assets|Packages)/[^\n\r:<>]+?\.cs)(?:[:(](?<line>\d+)[,)]?)?", RegexOptions.IgnoreCase);
-                    var mInline = rxPathInline.Match(messageText);
-                    if (mInline.Success)
-                    {
-                        drewCustom = true;
-                        detectedPath = mInline.Groups["path"].Value;
-                        int.TryParse(mInline.Groups["line"].Value, out detectedLine);
-                        string pre = messageText.Substring(0, mInline.Index);
-                        string hit = messageText.Substring(mInline.Index, mInline.Length);
-                        string post = messageText.Substring(mInline.Index + mInline.Length);
-                        // Draw pre
-                        float x = msgLabelRect.x; float yLine = msgLabelRect.y;
-                        tempGc = new GUIContent(pre);
-                        float preW = msgStyle.CalcSize(tempGc).x;
-                        GUI.Label(new Rect(x, yLine, preW, EditorGUIUtility.singleLineHeight), tempGc, msgStyle);
-                        x += preW;
-                        // Draw link (single line assumption). If multi-line wrap, fallback to simple label.
-                        tempGc = new GUIContent(hit);
-                        float linkW = msgLinkStyle.CalcSize(tempGc).x;
-                        var linkRect = new Rect(x, yLine, linkW, EditorGUIUtility.singleLineHeight);
-                        GUI.Label(linkRect, tempGc, msgLinkStyle);
-                        // underline
-                        var ul = new Rect(linkRect.x, linkRect.yMax - 1f, linkRect.width, 1f);
-                        EditorGUI.DrawRect(ul, msgLinkColor);
-                        x += linkW;
-                        // Draw post
-                        tempGc = new GUIContent(post);
-                        float postW = msgStyle.CalcSize(tempGc).x;
-                        GUI.Label(new Rect(x, yLine, postW, EditorGUIUtility.singleLineHeight), tempGc, msgStyle);
+                    detectedPath = mInline.Groups["path"].Value;
+                    int.TryParse(mInline.Groups["line"].Value, out detectedLine);
+                    int start = mInline.Index;
+                    int length = mInline.Length;
 
-                        detectedLinkRect = linkRect;
-                        EditorGUIUtility.AddCursorRect(linkRect, MouseCursor.Link);
+                    // Build display string segments (after soft wrap insertion) for precise index mapping.
+                    string preDisplay = InsertSoftWraps(messageText.Substring(0, start), dynamicMaxRun);
+                    string linkDisplay = InsertSoftWraps(messageText.Substring(start, length), dynamicMaxRun);
+                    string postDisplay = InsertSoftWraps(messageText.Substring(start + length), dynamicMaxRun);
+                    int linkStartDisplayIndex = preDisplay.Length;
+                    int linkEndDisplayIndex = linkStartDisplayIndex + linkDisplay.Length;
+
+                    // Colorize link without affecting positional indices (compute positions BEFORE adding tags).
+                    string colorHex = EditorGUIUtility.isProSkin ? "4DDA80" : "0F993F"; // no leading # inside tag builder
+                    string coloredDisplay = preDisplay + "<color=#" + colorHex + ">" + linkDisplay + "</color>" + postDisplay;
+
+                    GUI.Label(msgLabelRect, coloredDisplay, msgStyle);
+
+                    // Use GUIStyle to get pixel positions for start/end of link within wrapped text.
+                    // We must query on the original (non-colored) display string to ensure indices align.
+                    string plainDisplay = preDisplay + linkDisplay + postDisplay;
+                    var startPos = msgStyle.GetCursorPixelPosition(msgLabelRect, new GUIContent(plainDisplay), linkStartDisplayIndex);
+                    var endPos = msgStyle.GetCursorPixelPosition(msgLabelRect, new GUIContent(plainDisplay), linkEndDisplayIndex);
+                    float lineHeight = msgStyle.lineHeight > 0 ? msgStyle.lineHeight : msgStyle.CalcSize(new GUIContent("A")).y;
+
+                    messageLinkRects = new List<Rect>();
+                    if (Mathf.Approximately(startPos.y, endPos.y))
+                    {
+                        // Single line link
+                        var r = new Rect(msgLabelRect.x + startPos.x, msgLabelRect.y + startPos.y, Mathf.Max(2f, endPos.x - startPos.x), lineHeight);
+                        messageLinkRects.Add(r);
+                    }
+                    else
+                    {
+                        // Multi-line: first partial line
+                        float firstLineWidth = msgLabelRect.width - startPos.x;
+                        var first = new Rect(msgLabelRect.x + startPos.x, msgLabelRect.y + startPos.y, Mathf.Max(2f, firstLineWidth), lineHeight);
+                        messageLinkRects.Add(first);
+                        // Intermediate full lines
+                        int lineSpanCount = Mathf.Max(0, Mathf.RoundToInt((endPos.y - startPos.y) / lineHeight) - 1);
+                        for (int i = 0; i < lineSpanCount; i++)
+                        {
+                            var mid = new Rect(msgLabelRect.x, first.y + lineHeight * (i + 1), msgLabelRect.width, lineHeight);
+                            messageLinkRects.Add(mid);
+                        }
+                        // Last partial line
+                        var last = new Rect(msgLabelRect.x, msgLabelRect.y + endPos.y, Mathf.Max(2f, endPos.x), lineHeight);
+                        messageLinkRects.Add(last);
+                    }
+
+                    // Underline & cursor
+                    var underlineColor = EditorGUIUtility.isProSkin ? new Color(0.3f, 0.85f, 0.5f) : new Color(0.05f, 0.6f, 0.25f);
+                    foreach (var lr in messageLinkRects)
+                    {
+                        EditorGUIUtility.AddCursorRect(lr, MouseCursor.Link);
+                        var ul = new Rect(lr.x, lr.yMax - 1f, Mathf.Min(lr.width, msgLabelRect.xMax - lr.x), 1f);
+                        EditorGUI.DrawRect(ul, underlineColor);
                     }
                 }
+                else
+                {
+                    GUI.Label(msgLabelRect, displayMessageText, msgStyle);
+                }
             }
-            if (!drewCustom)
+            else
             {
-                GUI.Label(msgLabelRect, messageText, msgStyle);
+                GUI.Label(msgLabelRect, displayMessageText, msgStyle);
             }
 
             // If stacktrace empty (no synthetic frame), attempt regex detection for path:line
-            if (drewCustom && detectedPath != null && detectedLinkRect.width > 0f)
+            if (detectedPath != null && messageLinkRects != null)
             {
-                bool hover = detectedLinkRect.Contains(Event.current.mousePosition);
-                if (hover)
+                bool hover = false;
+                foreach (var r in messageLinkRects) { if (r.Contains(Event.current.mousePosition)) { hover = true; detectedLinkRect = r; break; } }
+                if (hover && Event.current.type == EventType.MouseDown && Event.current.clickCount == 2)
                 {
                     string abs = StyledConsoleController.NormalizeToAbsolutePath(detectedPath);
-                    hoveringAny = true;
-                    hoveringPath = abs;
-                    hoveringLine = detectedLine > 0 ? detectedLine : 1;
-                    // Anchor identical to stacktrace frames (left bias and vertical center adjustment)
-                    Vector2 rectPos = new Vector2(detectedLinkRect.x - 1f, detectedLinkRect.y);
-                    Vector2 linkScreenPoint = GUIUtility.GUIToScreenPoint(rectPos);
-                    linkScreenPoint.y -= ConsoleCodeTooltip.MaxHeight / 2f;
-                    hoveringScreenAnchor = new Rect(linkScreenPoint, new Vector2(1,1));
-                    if (Event.current.type == EventType.MouseDown && Event.current.clickCount == 2)
-                    {
-                        StyledConsoleController.OpenAbsolutePath(abs, hoveringLine);
-                        Event.current.Use();
-                    }
+                    StyledConsoleController.OpenAbsolutePath(abs, detectedLine > 0 ? detectedLine : 1);
+                    Event.current.Use();
                 }
             }
             GUI.EndScrollView();
@@ -552,7 +593,7 @@ namespace BattleTurn.StyledLog.Editor
             var frames = StyledConsoleController.ParseStackFrames(stack);
 
             // callsite summary
-            y = innerSplitRect.yMax + 4f;
+            float y = innerSplitRect.yMax + 4f;
             var callsite = StyledConsoleController.GetFirstUserFrame(frames);
             var callRect = new Rect(rect.x + 6f, y, rect.width - 12f, 18f);
             if (callsite != null)
@@ -595,37 +636,19 @@ namespace BattleTurn.StyledLog.Editor
 
                     if (!string.IsNullOrEmpty(f.path) && f.line > 0)
                     {
-                        // draw "Method (at "
-                        string prefix = string.IsNullOrEmpty(f.method) ? "" : f.method;
-                        prefix += " (at ";
-                        var prefixSize = baseStyle.CalcSize(new GUIContent(prefix));
-                        var prefixRect = new Rect(row.x, row.y, prefixSize.x, row.height);
-                        GUI.Label(prefixRect, prefix, baseStyle);
-
-                        // draw clickable link
-                        string linkText = f.display;
-                        var linkSize = linkStyle.CalcSize(new GUIContent(linkText));
-                        var linkRect = new Rect(prefixRect.xMax, row.y, linkSize.x, row.height);
-                        EditorGUIUtility.AddCursorRect(linkRect, MouseCursor.Link);
-                        GUI.Label(linkRect, linkText, linkStyle);
-                        // underline
-                        var ul = new Rect(linkRect.x, linkRect.yMax - 1f, Mathf.Min(linkRect.width, row.xMax - linkRect.x), 1f);
-                        EditorGUI.DrawRect(ul, linkColor);
-
-                        // draw ")"
-                        var postRect = new Rect(linkRect.xMax, row.y, 12f, row.height);
-                        GUI.Label(postRect, ")", baseStyle);
-
-                        bool hover = linkRect.Contains(Event.current.mousePosition);
+                        string prefix = (string.IsNullOrEmpty(f.method) ? "" : f.method) + " (at ";
+                        Rect linkRect;
+                        StyledConsoleEditorGUI.DrawInlineFileLink(row, prefix, f.display, ")", baseStyle, linkStyle, linkColor, out linkRect);
+                        bool hover = linkRect.width > 0 && linkRect.Contains(Event.current.mousePosition);
                         if (hover)
                         {
                             hoveringAny = true;
                             hoveringPath = StyledConsoleController.NormalizeToAbsolutePath(f.path);
                             hoveringLine = f.line;
-                            Vector2 rectPos = postRect.position; rectPos.x -= 1; // left bias
+                            // Anchor tooltip to the right of the link so it never covers the clickable text
+                            Vector2 rectPos = new Vector2(linkRect.xMax + 1f, linkRect.y - 2f); // anchor 1px to the right
                             Vector2 linkScreenPoint = GUIUtility.GUIToScreenPoint(rectPos);
-                            linkScreenPoint.y -= ConsoleCodeTooltip.MaxHeight / 2;
-                            hoveringScreenAnchor = new Rect(linkScreenPoint, new Vector2(1,1));
+                            hoveringScreenAnchor = new Rect(linkScreenPoint, new Vector2(1, 1));
                         }
                         if (Event.current.type == EventType.MouseDown && hover) { StyledConsoleController.OpenFrame(f); Event.current.Use(); }
                     }
@@ -706,9 +729,9 @@ namespace BattleTurn.StyledLog.Editor
                 if (newErr != _controller.ShowError) { _controller.ShowError = newErr; changed = true; }
 
                 // Draw count badges (top-right overlay, small so it doesn't hide icon)
-                DrawCountBadge(logRect, cLog, new Color(0.25f,0.55f,0.95f,1f));
-                DrawCountBadge(warnRect, cWarn, new Color(0.95f,0.75f,0.25f,1f));
-                DrawCountBadge(errRect, cErr, new Color(0.85f,0.25f,0.25f,1f));
+                DrawCountBadge(logRect, cLog, new Color(0.25f, 0.55f, 0.95f, 1f));
+                DrawCountBadge(warnRect, cWarn, new Color(0.95f, 0.75f, 0.25f, 1f));
+                DrawCountBadge(errRect, cErr, new Color(0.85f, 0.25f, 0.25f, 1f));
 
                 GUILayout.FlexibleSpace();
                 if (changed)
@@ -730,7 +753,7 @@ namespace BattleTurn.StyledLog.Editor
                 {
                     alignment = TextAnchor.MiddleCenter,
                     fontSize = 11,
-                    padding = new RectOffset(0,0,0,0),
+                    padding = new RectOffset(0, 0, 0, 0),
                     clipping = TextClipping.Clip
                 };
             }
@@ -746,15 +769,34 @@ namespace BattleTurn.StyledLog.Editor
                 h);
             var bg = new Color(color.r, color.g, color.b, 0.85f);
             EditorGUI.DrawRect(r, bg);
-            var outline = new Color(0,0,0,0.45f);
+            var outline = new Color(0, 0, 0, 0.45f);
             EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 1f), outline);
-            EditorGUI.DrawRect(new Rect(r.x, r.yMax-1f, r.width, 1f), outline);
+            EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1f, r.width, 1f), outline);
             EditorGUI.DrawRect(new Rect(r.x, r.y, 1f, r.height), outline);
-            EditorGUI.DrawRect(new Rect(r.xMax-1f, r.y, 1f, r.height), outline);
+            EditorGUI.DrawRect(new Rect(r.xMax - 1f, r.y, 1f, r.height), outline);
             var oldColor = GUI.color;
             GUI.color = Color.black;
             GUI.Label(r, txt, _badgeStyle);
             GUI.color = oldColor;
+        }
+
+        // Force wrap very long unbroken tokens by inserting line breaks (avoids overflow when wordWrap can't break).
+        private static string InsertSoftWraps(string input, int maxRun = 80)
+        {
+            if (string.IsNullOrEmpty(input) || maxRun < 8) return input;
+            return Regex.Replace(input, @"([^\s<]{" + maxRun + @",})", m =>
+            {
+                var s = m.Value;
+                // Insert '\n' every maxRun chars (from start) so GUI.Label will wrap.
+                System.Text.StringBuilder sb = new System.Text.StringBuilder(s.Length + s.Length / maxRun + 4);
+                for (int i = 0; i < s.Length; i++)
+                {
+                    sb.Append(s[i]);
+                    if ((i + 1) % maxRun == 0 && i < s.Length - 1)
+                        sb.Append('\n');
+                }
+                return sb.ToString();
+            });
         }
     }
 }

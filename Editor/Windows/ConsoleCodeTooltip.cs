@@ -142,15 +142,6 @@ namespace BattleTurn.StyledLog.Editor
             {
                 GUILayout.Label($"{_absPath}:{_line}", EditorStyles.boldLabel);
                 GUILayout.FlexibleSpace();
-                if (GUILayout.Button("Open", GUILayout.Width(60)))
-                {
-                    var rel = ToUnityPath(_absPath);
-                    if (!string.IsNullOrEmpty(rel))
-                    {
-                        var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(rel);
-                        if (obj != null) AssetDatabase.OpenAsset(obj, _line);
-                    }
-                }
             }
 
             GUILayout.Space(4);
