@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Reflection;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
@@ -12,6 +14,20 @@ namespace BattleTurn.StyledLog.Editor
     /// </summary>
     internal sealed class StyledConsoleController
     {
+        // Backlog import guard (ensures we only import existing Unity console entries once)
+        private static bool _importedUnityBacklog;
+
+        [System.Serializable]
+        private class Entry
+        {
+            public LogType type;
+            public string tag;
+            public string rich; // message text stripped of font tags
+            public Font font;
+            public string stack;
+            public int count = 1; // collapse count
+            public string message => rich; // legacy alias used by backlog import
+        }
         private static readonly List<Entry> s_all = new();
         private static readonly List<Entry> s_collapsed = new();
         private static readonly Dictionary<string, Entry> s_collapseIndex = new();
@@ -22,6 +38,52 @@ namespace BattleTurn.StyledLog.Editor
 
         [System.Serializable]
         private class CompilerMsgDTO { public int type; public string file; public int line; public int col; public string message; }
+
+        // Import existing Unity Console entries present before our hook (e.g., early startup warnings like ADB)
+        public static void ImportUnityBacklog()
+        {
+            if (_importedUnityBacklog) return;
+            _importedUnityBacklog = true;
+            try
+            {
+                var logEntriesType = Type.GetType("UnityEditor.LogEntries, UnityEditor.dll");
+                var logEntryType = Type.GetType("UnityEditor.LogEntry, UnityEditor.dll");
+                if (logEntriesType == null || logEntryType == null) return;
+
+                var getCount = logEntriesType.GetMethod("GetCount", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                var startGetting = logEntriesType.GetMethod("StartGettingEntries", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                var endGetting = logEntriesType.GetMethod("EndGettingEntries", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                var getEntry = logEntriesType.GetMethod("GetEntryInternal", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (getCount == null || startGetting == null || endGetting == null || getEntry == null) return;
+
+                int total = (int)getCount.Invoke(null, null);
+                if (total <= 0) return;
+                startGetting.Invoke(null, null);
+                var entry = Activator.CreateInstance(logEntryType);
+                var conditionField = logEntryType.GetField("condition");
+                var stackField = logEntryType.GetField("stackTrace");
+                var modeField = logEntryType.GetField("mode");
+                // mode bits guess (Unity internal): 1 error, 2 assert, 4 log, 8 warning, 16 fatal
+                for (int i = 0; i < total; i++)
+                {
+                    object[] args = { i, entry };
+                    bool ok = (bool)getEntry.Invoke(null, args);
+                    if (!ok) continue;
+                    string condition = conditionField?.GetValue(entry) as string ?? string.Empty;
+                    string stack = stackField?.GetValue(entry) as string ?? string.Empty;
+                    int mode = modeField != null ? (int)modeField.GetValue(entry) : 0;
+                    LogType t = LogType.Log;
+                    const int k_Error = 1, k_Assert = 2, k_Log = 4, k_Warning = 8, k_Fatal = 16;
+                    if ((mode & k_Error) != 0 || (mode & k_Assert) != 0 || (mode & k_Fatal) != 0) t = LogType.Error;
+                    else if ((mode & k_Warning) != 0) t = LogType.Warning;
+                    else if ((mode & k_Log) != 0) t = LogType.Log;
+                    if (s_all.Exists(e => e.rich == condition && e.type == t)) continue; // already captured
+                    AddLog("Unity", condition, t, stack);
+                }
+                endGetting.Invoke(null, null);
+            }
+            catch { }
+        }
         [System.Serializable]
         private class CompilerMsgListDTO { public List<CompilerMsgDTO> list = new(); }
 
@@ -686,7 +748,7 @@ namespace BattleTurn.StyledLog.Editor
             var rel = AbsoluteToUnityPath(abs);
             if (!string.IsNullOrEmpty(rel))
             {
-                var obj = AssetDatabase.LoadAssetAtPath<Object>(rel);
+                var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(rel);
                 if (obj != null) { AssetDatabase.OpenAsset(obj, Mathf.Max(1, f.line)); return; }
             }
             InternalEditorUtility.OpenFileAtLineExternal(abs, Mathf.Max(1, f.line));
@@ -699,7 +761,7 @@ namespace BattleTurn.StyledLog.Editor
             var rel = AbsoluteToUnityPath(abs);
             if (!string.IsNullOrEmpty(rel))
             {
-                var obj = AssetDatabase.LoadAssetAtPath<Object>(rel);
+                var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(rel);
                 if (obj != null) { AssetDatabase.OpenAsset(obj, Mathf.Max(1, line)); return; }
             }
             InternalEditorUtility.OpenFileAtLineExternal(abs, Mathf.Max(1, line));

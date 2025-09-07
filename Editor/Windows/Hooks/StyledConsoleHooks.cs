@@ -17,6 +17,9 @@ namespace BattleTurn.StyledLog.Editor
             Application.logMessageReceived -= OnUnityLog;
             Application.logMessageReceived += OnUnityLog;
 
+            // Import any existing Unity Console entries emitted before our hook (e.g., ADB warnings on startup)
+            StyledConsoleController.ImportUnityBacklog();
+
             // Restore any persisted compiler diagnostics first, then sync current messages
             StyledConsoleController.LoadCompilerDiagnosticsSnapshot();
             StyledConsoleController.SyncCompilerMessages();
