@@ -225,24 +225,63 @@ namespace BattleTurn.StyledLog.Editor
             }
         }
 
-        // Toolbar search field with cancel button (Unity style).
+        // Toolbar search field: clear 'x' rendered inside field, only visible & clickable when non-empty.
         public static string ToolbarSearch(string value, float minWidth = 180f)
         {
 #if UNITY_2021_1_OR_NEWER
-            value = GUILayout.TextField(value, GUI.skin.FindStyle("ToolbarSearchTextField"), GUILayout.MinWidth(minWidth));
-            if (GUILayout.Button(GUIContent.none, GUI.skin.FindStyle("ToolbarSearchCancelButton")))
-            {
-                value = string.Empty;
-                GUI.FocusControl(null);
-            }
+            var textStyle = GUI.skin.FindStyle("ToolbarSearchTextField") ?? EditorStyles.toolbarSearchField;
+            var cancelStyle = GUI.skin.FindStyle("ToolbarSearchCancelButton") ?? GUI.skin.FindStyle("ToolbarCancelButton");
 #else
-            value = GUILayout.TextField(value, GUI.skin.FindStyle("ToolbarSeachTextField"), GUILayout.MinWidth(minWidth));
-            if (GUILayout.Button(GUIContent.none, GUI.skin.FindStyle("ToolbarSeachCancelButton")))
+            var textStyle = GUI.skin.FindStyle("ToolbarSeachTextField") ?? EditorStyles.toolbarSearchField;
+            var cancelStyle = GUI.skin.FindStyle("ToolbarSeachCancelButton") ?? GUI.skin.FindStyle("ToolbarCancelButton");
+#endif
+            float height = Mathf.Max(18f, textStyle.fixedHeight > 0 ? textStyle.fixedHeight : 18f);
+            Rect r = GUILayoutUtility.GetRect(minWidth, height, GUILayout.MinWidth(minWidth));
+            // Center vertically within toolbar height (usually 22)
+            float toolbarH = EditorStyles.toolbar.fixedHeight > 0 ? EditorStyles.toolbar.fixedHeight : height;
+            if (toolbarH > height)
+            {
+                float yOff = (toolbarH - height) * 0.5f;
+                r.y += Mathf.Floor(yOff);
+            }
+            bool hasText = !string.IsNullOrEmpty(value);
+            float btnSize = Mathf.Clamp(height - 4f, 12f, 20f);
+            // Vertically center cancel button; subtract 1px to compensate style baseline so it doesn't look too low
+            float btnY = r.y + (r.height - btnSize) * 0.5f - 1f;
+            var btnRect = new Rect(r.xMax - btnSize - 2f, Mathf.Round(btnY), btnSize, btnSize);
+
+            // Intercept click for clear BEFORE drawing text field so TextField doesn't eat it
+            var e = Event.current;
+            if (hasText && e.type == EventType.MouseDown && btnRect.Contains(e.mousePosition))
             {
                 value = string.Empty;
                 GUI.FocusControl(null);
+                e.Use();
             }
-#endif
+
+            // Temporarily pad right side so text doesn't overlap button area
+            int oldRight = textStyle.padding.right;
+            if (hasText) textStyle.padding.right = oldRight + (int)(btnSize + 6f);
+            value = GUI.TextField(r, value, textStyle);
+            textStyle.padding.right = oldRight;
+
+            if (hasText)
+            {
+                // Draw button (visual + hover), it's purely cosmetic because click already intercepted
+                if (cancelStyle != null)
+                {
+                    GUI.Button(btnRect, GUIContent.none, cancelStyle);
+                }
+                else
+                {
+                    // Fallback simple X
+                    var oldColor = GUI.color;
+                    GUI.color = new Color(0.8f,0.8f,0.8f,1f);
+                    GUI.Label(btnRect, "x", EditorStyles.centeredGreyMiniLabel);
+                    GUI.color = oldColor;
+                }
+                EditorGUIUtility.AddCursorRect(btnRect, MouseCursor.Arrow);
+            }
             return value;
         }
     }

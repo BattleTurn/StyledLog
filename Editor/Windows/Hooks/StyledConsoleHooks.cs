@@ -62,8 +62,11 @@ namespace BattleTurn.StyledLog.Editor
 
         private static void OnPlayModeChanged(PlayModeStateChange state)
         {
+            // We want Clear On Play to happen BEFORE user play-mode initialization code (Awake/OnEnable) runs,
+            // otherwise early play logs get wiped. Unity sequence: ExitingEditMode -> (domain reload?) -> EnteredPlayMode.
+            // So clear on ExitingEditMode instead of EnteredPlayMode.
             StyledConsoleController.EnsurePrefsLoaded();
-            if (state == PlayModeStateChange.EnteredPlayMode && StyledConsoleController.ClearOnPlay)
+            if (state == PlayModeStateChange.ExitingEditMode && StyledConsoleController.ClearOnPlay)
             {
                 StyledConsoleController.ClearAllStorage();
             }

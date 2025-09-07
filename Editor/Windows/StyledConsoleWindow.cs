@@ -26,7 +26,7 @@ namespace BattleTurn.StyledLog.Editor
         private float _colTagW = 160f;
         private const float MinColW = 60f;
         private const float SplitW = 4f;
-        private bool _dragTypeSplit, _dragTagSplit;
+    private bool _dragIconSplit, _dragTypeSplit, _dragTagSplit;
 
         // Vertical split (row list vs stack pane)
         private float _stackFrac = 0.38f; // bottom pane fraction
@@ -204,52 +204,62 @@ namespace BattleTurn.StyledLog.Editor
 
         private void DrawHeaderWithSplitters()
         {
-            var headerRect = EditorGUILayout.BeginHorizontal("box", GUILayout.Height(20));
+            // Reserve exact rect once using GUILayout but draw manually for pixel alignment
+            var outer = GUILayoutUtility.GetRect(0, 20f, GUILayout.ExpandWidth(true));
+            GUI.Box(outer, GUIContent.none, "box");
+
+            // Compute column rects
+            var iconRect = new Rect(outer.x, outer.y, _colIconW, outer.height);
+            var typeRect = new Rect(iconRect.xMax, outer.y, _colTypeW - _colIconW, outer.height);
+            var tagRect  = new Rect(_colTypeW, outer.y, _colTagW, outer.height);
+            var msgRect  = new Rect(_colTypeW + _colTagW, outer.y, outer.width - (_colTypeW + _colTagW), outer.height);
+
+            // Draw cells (each draws its own right separator except last)
+                        DrawHeaderCell(iconRect, () => DrawHeaderLabel(iconRect, "Icon"), true,
+                            dx => { _dragIconSplit = true; float minIcon = 12f; float maxIcon = Mathf.Max(minIcon, _colTypeW - 40f); _colIconW = Mathf.Clamp(_colIconW + dx, minIcon, maxIcon); Repaint(); },
+                            () => { _dragIconSplit = false; });
+                        DrawHeaderCell(typeRect, () => DrawHeaderLabel(typeRect, "Type"), true,
+                            dx => { _dragTypeSplit = true; _colTypeW = Mathf.Max(MinColW, _colTypeW + dx); Repaint(); },
+                            () => { _dragTypeSplit = false; });
+                        DrawHeaderCell(tagRect, () => DrawHeaderCellTag(tagRect), true,
+                            dx => { _dragTagSplit = true; _colTagW = Mathf.Max(MinColW, _colTagW + dx); Repaint(); },
+                            () => { _dragTagSplit = false; });
+                        DrawHeaderCell(msgRect, () => DrawHeaderLabel(msgRect, "Message"), false, null, null);
+
+            // Bottom line
+            var line = new Rect(outer.x, outer.yMax - 1f, outer.width, 1f);
+            EditorGUI.DrawRect(line, new Color(0,0,0,0.2f));
+        }
+
+        private static GUIStyle _headerLabelStyle;
+        private float DrawHeaderLabel(Rect rect, string text)
+        {
+            if (_headerLabelStyle == null)
             {
-                GUILayout.Label("", GUILayout.Width(_colIconW)); // icon spacer
-                GUILayout.Label("Type", GUILayout.Width(_colTypeW - _colIconW));
-                // Tag header and dropdown arrow drawn inside the same column width
-                var tagHeaderRect = GUILayoutUtility.GetRect(_colTagW, 20f, GUILayout.Width(_colTagW - 10));
-                DrawTagDropdown(tagHeaderRect);
-                GUILayout.Label("Message");
-
-                // vertical splitters aligned to window coordinates
-                var rTypeRight = new Rect(_colTypeW, headerRect.y, SplitW, headerRect.height);
-                var rTagRight = new Rect(_colTypeW + _colTagW + SplitW, headerRect.y, SplitW, headerRect.height);
-
-                // type|tag splitter
-                StyledConsoleEditorGUI.DrawVSplitter(
-                    rTypeRight,
-                    dx => { _dragTypeSplit = true; _colTypeW = Mathf.Max(MinColW, _colTypeW + dx); Repaint(); },
-                    () => { _dragTypeSplit = false; }
-                );
-
-                // tag|message splitter
-                StyledConsoleEditorGUI.DrawVSplitter(
-                    rTagRight,
-                    dx => { _dragTagSplit = true; _colTagW = Mathf.Max(MinColW, _colTagW + dx); Repaint(); },
-                    () => { _dragTagSplit = false; }
-                );
-
-                // bottom hairline rule
-                Handles.color = new Color(0, 0, 0, 0.2f);
-                Handles.DrawLine(new Vector2(headerRect.x, headerRect.yMax - 1),
-                                 new Vector2(headerRect.xMax, headerRect.yMax - 1));
+                _headerLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleLeft,
+                    padding = new RectOffset(0,0,0,0)
+                };
             }
-            EditorGUILayout.EndHorizontal();
+            var gc = new GUIContent(text);
+            var size = _headerLabelStyle.CalcSize(gc);
+            // Shift label right by 2px (visual breathing space from splitter)
+            var r = new Rect(rect.x + 2f, rect.y, Mathf.Min(size.x, rect.width - 2f), rect.height);
+            GUI.Label(r, gc, _headerLabelStyle);
+            return r.width;
         }
 
         private void DrawTagDropdown(Rect rect)
         {
-            // Draw label and a small dropdown arrow inside the same header cell
+            // Flush-left Tag label; arrow immediately follows without extra gap
             const float arrowW = 20f;
-            var labelRect = rect; labelRect.xMax = rect.xMax - arrowW;
-            GUI.Label(labelRect, "Tag");
-
-            var arrowRect = new Rect(rect.xMin + arrowW + 8f, rect.y + 2f, arrowW - 2f, rect.height);
+            float labelW = DrawHeaderLabel(rect, "Tag");
+            // labelW already includes the drawn width starting at rect.x + 2, so arrow anchors at rect.x + 2 + labelW
+            var arrowRect = new Rect(rect.x + 5f + labelW, rect.y, arrowW - 4f, rect.height - 4f);
             bool open = false;
+            // Only arrow area opens dropdown; leave left side free for splitter drag hit zone
             if (GUI.Button(arrowRect, GUIContent.none, EditorStyles.toolbarDropDown)) open = true;
-            else if (Event.current.type == EventType.MouseDown && rect.Contains(Event.current.mousePosition)) open = true;
 
             if (!open) return;
 
@@ -315,6 +325,76 @@ namespace BattleTurn.StyledLog.Editor
                 });
             }
             menu.ShowAsContext();
+        }
+        // Draw a single header cell (content via drawer) and an optional vertical separator on the right
+                private void DrawHeaderCell(Rect rect, System.Action drawer, bool drawSeparator, System.Action<float> onDrag, System.Action onFinish)
+        {
+            drawer?.Invoke();
+                bool hasDrag = onDrag != null;
+                // Only draw static separator if no draggable splitter (avoid double line look)
+                if (drawSeparator && !hasDrag)
+                {
+                    var sepLine = new Rect(rect.xMax - 1f, rect.y + 1f, 1f, rect.height - 2f);
+                    EditorGUI.DrawRect(sepLine, new Color(0,0,0,0.28f));
+                }
+                if (hasDrag)
+                {
+                    var hit = new Rect(rect.xMax - 3f, rect.y, 6f, rect.height);
+                    StyledConsoleEditorGUI.DrawVSplitter(hit,
+                        dx => { onDrag(dx); },
+                        () => { onFinish?.Invoke(); });
+                }
+        }
+
+        private void DrawHeaderCellTag(Rect rect)
+        {
+            const float arrowW = 20f;
+            float labelW = DrawHeaderLabel(rect, "Tag");
+            var arrowRect = new Rect(rect.x + 5f + labelW, rect.y, arrowW - 4f, rect.height - 4f);
+            if (GUI.Button(arrowRect, GUIContent.none, EditorStyles.toolbarDropDown))
+            {
+                Event.current.Use();
+                _controller.LoadTagPrefs();
+                var menu = new GenericMenu();
+                var mgr = StyledDebug.StyledLogManager;
+                var tags = new List<string>();
+                if (mgr != null)
+                {
+                    try { tags = mgr.GetAllTags(); } catch { }
+                }
+                if (!tags.Contains("Unity")) tags.Add("Unity");
+                if (!tags.Contains("default")) tags.Add("default");
+                if (!tags.Contains("Compiler")) tags.Add("Compiler");
+
+                bool everythingOn = _controller.HasExplicitTagSelection ? false : _controller.TagEverything;
+                menu.AddItem(new GUIContent("Everything"), everythingOn, () =>
+                {
+                    _controller.SetEverything(!everythingOn);
+                    _controller.SaveTagPrefs();
+                    Repaint();
+                });
+                menu.AddSeparator("");
+
+                foreach (var tag in tags)
+                {
+                    bool enabled = _controller.GetTagEnabled(tag);
+                    menu.AddItem(new GUIContent(tag), enabled, () =>
+                    {
+                        if (!_controller.HasExplicitTagSelection && _controller.TagEverything)
+                        {
+                            _controller.SetEverything(false);
+                            _controller.SetTagEnabled(tag, true);
+                        }
+                        else
+                        {
+                            _controller.SetTagEnabled(tag, !enabled);
+                        }
+                        _controller.SaveTagPrefs();
+                        Repaint();
+                    });
+                }
+                menu.ShowAsContext();
+            }
         }
 
         private void DrawRowsAreaLayout(Rect rect)

@@ -237,61 +237,41 @@ namespace BattleTurn.StyledLog.Editor
             SessionState.SetString(SessionKey_Snapshot, "");
         }
 
-        // Manual clear (user pressed Clear button): preserve active compile diagnostics (errors + warnings) like Unity Console behavior
+        // Manual clear (user pressed Clear button): remove non-compiler logs but KEEP current compiler diagnostics
+        // This mirrors Unity Console: compile errors & warnings persist until they are actually fixed.
         internal static void ClearPreserveCompileErrors()
         {
-            // Gather current compile diagnostics
-            var preserved = new List<Entry>();
-            try
+            if (s_all.Count == 0)
             {
-                CompilerMessage[] msgs = null;
-                // Newer Unity exposes CompilationPipeline.compilerMessages (obsolete soon) or via reflection
-                try { msgs = (CompilerMessage[])typeof(CompilationPipeline).GetProperty("compilerMessages")?.GetValue(null, null); } catch { }
-                if (msgs == null)
-                {
-                    // fallback: try internal GetMessages (undocumented) via reflection
-                    var mi = typeof(CompilationPipeline).GetMethod("GetMessages", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-                    if (mi != null)
-                    {
-                        try { msgs = mi.Invoke(null, null) as CompilerMessage[]; } catch { }
-                    }
-                }
-                if (msgs != null)
-                {
-                    string projectRoot = System.IO.Path.GetDirectoryName(Application.dataPath).Replace('\\', '/');
-                    foreach (var cm in msgs)
-                    {
-                        if (cm.type != CompilerMessageType.Error && cm.type != CompilerMessageType.Warning) continue;
-                        string file = cm.file?.Replace('\\', '/') ?? "";
-                        if (!string.IsNullOrEmpty(file) && file.StartsWith(projectRoot)) file = file.Substring(projectRoot.Length + 1);
-                        bool isErr = cm.type == CompilerMessageType.Error;
-                        string formatted = string.IsNullOrEmpty(file)
-                            ? cm.message
-                            : $"{file}({cm.line},{cm.column}): {(isErr ? "error" : "warning")}: {cm.message}";
-                        preserved.Add(new Entry { type = isErr ? LogType.Error : LogType.Warning, tag = "Compiler", rich = formatted, font = null, stack = string.Empty, count = 1 });
-                    }
-                }
+                Cleared?.Invoke();
+                return;
             }
-            catch { /* ignore */ }
 
+            // Collect existing compiler entries (already in storage). We reuse them; no need to query pipeline again.
+            var preserved = new List<Entry>();
+            for (int i = 0; i < s_all.Count; i++)
+            {
+                var e = s_all[i];
+                if (e.tag == "Compiler") preserved.Add(e);
+            }
+
+            // Rebuild lists keeping only preserved compiler entries.
             s_all.Clear();
             s_collapsed.Clear();
             s_collapseIndex.Clear();
-            s_compilerKeys.Clear();
-            // Re-add preserved compile errors
+            // IMPORTANT: do NOT clear s_compilerKeys; those keys still valid so future Sync doesn't duplicate.
+
             foreach (var e in preserved)
             {
                 s_all.Add(e);
                 AddCollapsed(e);
-                // add key so they aren't duplicated when compile finishes
-                var key = $"{(int)e.type}|{e.rich}"; // simplified unique for preserved diagnostics
-                s_compilerKeys.Add(key);
             }
+
             Cleared?.Invoke();
 
-            // Clear snapshot (we don't persist compile errors explicitly)
+            // Clearing snapshot of regular logs; compiler snapshot will be recreated on next sync if needed.
             SessionState.SetBool(SessionKey_HasSnapshot, false);
-            SessionState.SetString(SessionKey_Snapshot, "");
+            SessionState.SetString(SessionKey_Snapshot, string.Empty);
         }
 
         internal static void SaveSnapshot()
