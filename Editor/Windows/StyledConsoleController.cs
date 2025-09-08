@@ -32,7 +32,7 @@ namespace BattleTurn.StyledLog.Editor
         private static readonly List<Entry> s_collapsed = new();
         private static readonly Dictionary<string, Entry> s_collapseIndex = new();
         // Track compiler messages already ingested (key: type|file|line|col|msg)
-    private static readonly HashSet<string> s_compilerKeys = new();
+        private static readonly HashSet<string> s_compilerKeys = new();
         // Persist compiler diagnostics across domain reload even when ClearOnRecompile is ON
         private const string SessionKey_CompilerSnapshot = "StyledConsole.CompilerSnapshot";
 
@@ -142,6 +142,9 @@ namespace BattleTurn.StyledLog.Editor
             }
 
             var msg = StyledConsoleEditorGUI.StripFontTags(richWithFont);
+            // Inject inline frame from message (Windows or Unix path); label 'Message'
+            stack = EnsureInlineFrameFromMessage(msg, stack, "Message");
+
             var e = new Entry
             {
                 type = type,
@@ -158,8 +161,56 @@ namespace BattleTurn.StyledLog.Editor
             Changed?.Invoke();
         }
 
+        // Ensure first inline script path inside 'message' is present as a synthetic frame in 'existingStack'.
+        // framePrefix distinguishes origin (e.g., "Message" or "Compiler"). Returns updated stack string.
+        // Expanded detection: supports relative (Assets|Packages) paths, optional drive letter, :line or (line[,col]) or ' line N'
+        private static readonly Regex s_rxInlinePath = new Regex(
+            @"(?<path>(?:[A-Za-z]:[/\\])?(?:Assets|Packages)[/\\][^\n\r:()<>""']+?\.cs)\s*(?:[:(]\s*(?<line>\d+)(?:[,)]\s*(?<col>\d+))?|\s+line\s+(?<line2>\d+))",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static string EnsureInlineFrameFromMessage(string message, string existingStack, string framePrefix)
+        {
+            if (string.IsNullOrEmpty(message)) return existingStack;
+            var m = s_rxInlinePath.Match(message);
+            if (!m.Success) return existingStack;
+            string p = m.Groups["path"].Value.Replace('\\', '/');
+            int line = 0;
+            if (!int.TryParse(m.Groups["line"].Value, out line))
+                int.TryParse(m.Groups["line2"].Value, out line);
+            if (line <= 0) line = 1;
+            string frame = $"{framePrefix} (at {p}:{line})";
+            if (string.IsNullOrEmpty(existingStack)) return frame;
+            // If existing stack already contains an identical '(at path:line)' we skip adding; else append.
+            if (existingStack.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0)
+                return existingStack;
+            return existingStack.TrimEnd() + "\n" + frame;
+        }
+
+        // Re-scan all stored entries and inject missing inline frames (useful after regex upgrades or backlog import).
+        internal static void ReinjectInlineFramesForAll()
+        {
+            bool changedAny = false;
+            for (int i = 0; i < s_all.Count; i++)
+            {
+                var e = s_all[i];
+                string before = e.stack;
+                string updated = EnsureInlineFrameFromMessage(e.rich, e.stack, e.tag == "Compiler" ? "Compiler" : "Message");
+                if (!ReferenceEquals(before, updated) && before != updated)
+                {
+                    e.stack = updated;
+                    changedAny = true;
+                }
+            }
+            if (changedAny)
+            {
+                // Rebuild collapsed so clone stacks mirror originals
+                RebuildCollapsed();
+                Changed?.Invoke();
+            }
+        }
+
         // Sync current compiler messages (warnings + errors) into log list
-    internal static void SyncCompilerMessages()
+        internal static void SyncCompilerMessages()
         {
             CompilerMessage[] msgs = null;
             try { msgs = (CompilerMessage[])typeof(CompilationPipeline).GetProperty("compilerMessages")?.GetValue(null, null); } catch { }
@@ -190,7 +241,7 @@ namespace BattleTurn.StyledLog.Editor
                     ? cm.message
                     : $"{file}({cm.line},{cm.column}): {(lt == LogType.Error ? "error" : "warning")}: {cm.message}";
                 // Synthetic stack frame so stacktrace pane has clickable link
-                string syntheticStack = string.IsNullOrEmpty(file) ? string.Empty : $"Compiler (at {file}:{cm.line})";
+                string syntheticStack = string.IsNullOrEmpty(file) ? string.Empty : EnsureInlineFrameFromMessage(formatted, string.Empty, "Compiler");
                 var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = syntheticStack, count = 1 };
                 s_all.Add(e);
                 AddCollapsed(e);
@@ -334,7 +385,7 @@ namespace BattleTurn.StyledLog.Editor
             catch { return false; }
         }
 
-    internal static void AddCompilerMessages(IEnumerable<CompilerMessage> msgs)
+        internal static void AddCompilerMessages(IEnumerable<CompilerMessage> msgs)
         {
             if (msgs == null) return;
             string projectRoot = System.IO.Path.GetDirectoryName(Application.dataPath).Replace('\\', '/');
@@ -353,7 +404,7 @@ namespace BattleTurn.StyledLog.Editor
                 string formatted = string.IsNullOrEmpty(file)
                     ? cm.message
                     : $"{file}({cm.line},{cm.column}): {(lt == LogType.Error ? "error" : "warning")}: {cm.message}";
-                string syntheticStack = string.IsNullOrEmpty(file) ? string.Empty : $"Compiler (at {file}:{cm.line})";
+                string syntheticStack = string.IsNullOrEmpty(file) ? string.Empty : EnsureInlineFrameFromMessage(formatted, string.Empty, "Compiler");
                 var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = syntheticStack, count = 1 };
                 s_all.Add(e);
                 AddCollapsed(e);
@@ -414,7 +465,7 @@ namespace BattleTurn.StyledLog.Editor
             catch { /* ignore */ }
         }
 
-    internal static void LoadCompilerDiagnosticsSnapshot()
+        internal static void LoadCompilerDiagnosticsSnapshot()
         {
             try
             {
@@ -432,7 +483,7 @@ namespace BattleTurn.StyledLog.Editor
                     string formatted = string.IsNullOrEmpty(m.file)
                         ? m.message
                         : $"{m.file}({m.line},{m.col}): {(lt == LogType.Error ? "error" : "warning")}: {m.message}";
-                    string syntheticStack = string.IsNullOrEmpty(m.file) ? string.Empty : $"Compiler (at {m.file}:{m.line})";
+                    string syntheticStack = string.IsNullOrEmpty(m.file) ? string.Empty : EnsureInlineFrameFromMessage(formatted, string.Empty, "Compiler");
                     var e = new Entry { type = lt, tag = "Compiler", rich = formatted, font = null, stack = syntheticStack, count = 1 };
                     s_all.Add(e);
                     AddCollapsed(e);
@@ -600,26 +651,7 @@ namespace BattleTurn.StyledLog.Editor
 
         internal string SelectedStack() => SelectedEntry()?.stack ?? string.Empty;
 
-        internal void HandleRowMouseDown(int index, int clickCount)
-        {
-            SelectedIndex = index;
-            if (clickCount == 2)
-            {
-                var e = SelectedEntry();
-                if (e != null) StyledConsoleEditorGUI.OpenFirstUserFrame(e.stack);
-            }
-        }
-
-        internal void HandleRowContextMenu(int index)
-        {
-            if (index < 0 || index >= _visible.Count) return;
-            var e = _visible[index];
-            var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("Open Callsite"), false, () => StyledConsoleEditorGUI.OpenFirstUserFrame(e.stack));
-            menu.AddItem(new GUIContent("Copy Message"), false, () => EditorGUIUtility.systemCopyBuffer = e.rich ?? "");
-            menu.AddItem(new GUIContent("Copy Stacktrace"), false, () => EditorGUIUtility.systemCopyBuffer = e.stack ?? "");
-            menu.ShowAsContext();
-        }
+        // (Row input handling moved to StyledConsoleWindow)
 
         // ───────────────────────────────────────────────────────────────────────────────
         // Stack parsing and navigation utilities

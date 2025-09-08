@@ -3,6 +3,7 @@ using UnityEditor;
 using UnityEditorInternal;
 using UnityEditor.Callbacks;
 using UnityEngine;
+using System.Collections.Generic;
 
 namespace BattleTurn.StyledLog.Editor
 {
@@ -75,6 +76,413 @@ namespace BattleTurn.StyledLog.Editor
         // Shared list renderer that draws all rows and lets controller handle interactions.
         internal static GUIContent CompilerIcon; // optional external assignment
 
+        // ─────────────────────────────────────────────────────────────────────────────
+        // High-level window section drawers (migrated from StyledConsoleWindow)
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        private static GUIStyle _headerLabelStyle;
+        private static GUIStyle _badgeStyle;
+
+        #region Toolbar
+        public static void DrawToolbar(EditorWindow owner, StyledConsoleController controller, ref bool autoScroll)
+        {
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
+            {
+                bool oldCollapse = controller.Collapse;
+                bool oldAuto = autoScroll;
+                controller.Collapse = GUILayout.Toggle(controller.Collapse, "Collapse", EditorStyles.toolbarButton);
+                autoScroll = GUILayout.Toggle(autoScroll, "Auto-scroll", EditorStyles.toolbarButton);
+
+                GUILayout.FlexibleSpace();
+                controller.Search = ToolbarSearch(controller.Search, 180f);
+
+                GUILayout.Space(2f);
+                if (GUILayout.Button("Clear", EditorStyles.toolbarButton)) StyledConsoleController.ClearPreserveCompileErrors();
+
+                if (EditorGUILayout.DropdownButton(new GUIContent(""), FocusType.Passive, EditorStyles.toolbarDropDown))
+                {
+                    StyledConsoleController.EnsurePrefsLoaded();
+                    var menu = new GenericMenu();
+                    menu.AddItem(new GUIContent("Clear on Play"), StyledConsoleController.ClearOnPlay, () => StyledConsoleController.TogglePref_ClearOnPlay());
+                    menu.AddItem(new GUIContent("Clear on Build"), StyledConsoleController.ClearOnBuild, () => StyledConsoleController.TogglePref_ClearOnBuild());
+                    menu.AddItem(new GUIContent("Clear on Recompile"), StyledConsoleController.ClearOnRecompile, () => StyledConsoleController.TogglePref_ClearOnRecompile());
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent("Live Compiler Sync"), StyledConsoleController.LiveCompilerSync, () => StyledConsoleController.TogglePref_LiveCompilerSync());
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent("Rescan Inline Paths"), false, () =>
+                    {
+                        StyledConsoleController.ReinjectInlineFramesForAll();
+                        owner.Repaint();
+                    });
+                    menu.ShowAsContext();
+                }
+
+                if (controller.Collapse != oldCollapse)
+                {
+                    EditorPrefs.SetBool("StyledConsole.Collapse", controller.Collapse);
+                    if (controller.Collapse) StyledConsoleController.RebuildCollapsed();
+                }
+                if (autoScroll != oldAuto)
+                {
+                    EditorPrefs.SetBool("StyledConsole.AutoScroll", autoScroll);
+                }
+            }
+        }
+        #endregion
+
+        #region Header
+        public static void DrawHeader(EditorWindow owner, StyledConsoleController controller,
+            ref float colIconW, ref float colTypeW, ref float colTagW)
+        {
+            var outer = GUILayoutUtility.GetRect(0, 20f, GUILayout.ExpandWidth(true));
+            GUI.Box(outer, GUIContent.none, "box");
+
+            var iconRect = new Rect(outer.x, outer.y, colIconW, outer.height);
+            var typeRect = new Rect(iconRect.xMax, outer.y, colTypeW - colIconW, outer.height);
+            var tagRect = new Rect(colTypeW, outer.y, colTagW, outer.height);
+            var msgRect = new Rect(colTypeW + colTagW, outer.y, outer.width - (colTypeW + colTagW), outer.height);
+
+            float newIconW = colIconW;
+            float newTypeW = colTypeW;
+            float newTagW = colTagW;
+
+            DrawHeaderCell(iconRect, () => DrawHeaderLabel(iconRect, "Icon"), true,
+                dx => { float minIcon = 12f; float maxIcon = Mathf.Max(minIcon, newTypeW - 40f); newIconW = Mathf.Clamp(newIconW + dx, minIcon, maxIcon); owner.Repaint(); }, null);
+            DrawHeaderCell(typeRect, () => DrawHeaderLabel(typeRect, "Type"), true,
+                dx => { newTypeW = Mathf.Max(60f, newTypeW + dx); owner.Repaint(); }, null);
+            DrawHeaderCell(tagRect, () => DrawHeaderCellTag(owner, controller, tagRect), true,
+                dx => { newTagW = Mathf.Max(60f, newTagW + dx); owner.Repaint(); }, null);
+            DrawHeaderCell(msgRect, () => DrawHeaderLabel(msgRect, "Message"), false, null, null);
+
+            var line = new Rect(outer.x, outer.yMax - 1f, outer.width, 1f);
+            EditorGUI.DrawRect(line, new Color(0, 0, 0, 0.2f));
+
+            // Apply after interactions
+            colIconW = newIconW;
+            colTypeW = newTypeW;
+            colTagW = newTagW;
+        }
+
+        private static float DrawHeaderLabel(Rect rect, string text)
+        {
+            if (_headerLabelStyle == null)
+            {
+                _headerLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleLeft,
+                    padding = new RectOffset(0, 0, 0, 0)
+                };
+            }
+            var gc = new GUIContent(text);
+            var size = _headerLabelStyle.CalcSize(gc);
+            var r = new Rect(rect.x + 2f, rect.y, Mathf.Min(size.x, rect.width - 2f), rect.height);
+            GUI.Label(r, gc, _headerLabelStyle);
+            return r.width;
+        }
+
+        private static void DrawHeaderCellTag(EditorWindow owner, StyledConsoleController controller, Rect rect)
+        {
+            const float arrowW = 20f;
+            float labelW = DrawHeaderLabel(rect, "Tag");
+            var arrowRect = new Rect(rect.x + 5f + labelW, rect.y, arrowW - 4f, rect.height - 4f);
+            if (GUI.Button(arrowRect, GUIContent.none, EditorStyles.toolbarDropDown))
+            {
+                Event.current.Use();
+                controller.LoadTagPrefs();
+                var menu = new GenericMenu();
+                var mgr = StyledDebug.StyledLogManager;
+                var tags = new List<string>();
+                if (mgr != null) { try { tags = mgr.GetAllTags(); } catch { } }
+                if (!tags.Contains("Unity")) tags.Add("Unity");
+                if (!tags.Contains("default")) tags.Add("default");
+                if (!tags.Contains("Compiler")) tags.Add("Compiler");
+
+                bool everythingOn = controller.HasExplicitTagSelection ? false : controller.TagEverything;
+                menu.AddItem(new GUIContent("Everything"), everythingOn, () =>
+                {
+                    controller.SetEverything(!everythingOn);
+                    controller.SaveTagPrefs();
+                    owner.Repaint();
+                });
+                menu.AddSeparator("");
+                foreach (var tag in tags)
+                {
+                    bool enabled = controller.GetTagEnabled(tag);
+                    menu.AddItem(new GUIContent(tag), enabled, () =>
+                    {
+                        if (!controller.HasExplicitTagSelection && controller.TagEverything)
+                        {
+                            controller.SetEverything(false);
+                            controller.SetTagEnabled(tag, true);
+                        }
+                        else
+                        {
+                            controller.SetTagEnabled(tag, !enabled);
+                        }
+                        controller.SaveTagPrefs();
+                        owner.Repaint();
+                    });
+                }
+                menu.ShowAsContext();
+            }
+        }
+
+        private static void DrawHeaderCell(Rect rect, System.Action drawer, bool drawSeparator, System.Action<float> onDrag, System.Action onFinish)
+        {
+            drawer?.Invoke();
+            bool hasDrag = onDrag != null;
+            if (drawSeparator && !hasDrag)
+            {
+                var sepLine = new Rect(rect.xMax - 1f, rect.y + 1f, 1f, rect.height - 2f);
+                EditorGUI.DrawRect(sepLine, new Color(0, 0, 0, 0.28f));
+            }
+            if (hasDrag)
+            {
+                var hit = new Rect(rect.xMax - 3f, rect.y, 6f, rect.height);
+                DrawVSplitter(hit,
+                    dx => { onDrag(dx); },
+                    () => { onFinish?.Invoke(); });
+            }
+        }
+        #endregion
+
+        #region StatusBar + Badges
+        public static void DrawStatusBar(EditorWindow owner, StyledConsoleController controller,
+            GUIContent iconInfo, GUIContent iconWarn, GUIContent iconError)
+        {
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
+            {
+                StyledConsoleController.ComputeCounts(out var cLog, out var cWarn, out var cErr);
+                bool changed = false;
+                var btnStyle = EditorStyles.toolbarButton;
+                GUIContent gcLog = iconInfo != null ? new GUIContent(iconInfo.image, "Show Logs") : new GUIContent("Log");
+                GUIContent gcWarn = iconWarn != null ? new GUIContent(iconWarn.image, "Show Warnings") : new GUIContent("Warn");
+                GUIContent gcErr = iconError != null ? new GUIContent(iconError.image, "Show Errors") : new GUIContent("Err");
+                // Dim icons when their category is currently hidden (off state) but keep them clickable.
+                var prevColor = GUI.color;
+                if (!controller.ShowLog) GUI.color = new Color(prevColor.r, prevColor.g, prevColor.b, 0.35f);
+                bool newLog = GUILayout.Toggle(controller.ShowLog, gcLog, btnStyle, GUILayout.Width(46));
+                GUI.color = prevColor;
+                var logRect = GUILayoutUtility.GetLastRect();
+                if (newLog != controller.ShowLog) { controller.ShowLog = newLog; changed = true; }
+                if (!controller.ShowWarn) GUI.color = new Color(prevColor.r, prevColor.g, prevColor.b, 0.35f);
+                bool newWarn = GUILayout.Toggle(controller.ShowWarn, gcWarn, btnStyle, GUILayout.Width(46));
+                GUI.color = prevColor;
+                var warnRect = GUILayoutUtility.GetLastRect();
+                if (newWarn != controller.ShowWarn) { controller.ShowWarn = newWarn; changed = true; }
+                if (!controller.ShowError) GUI.color = new Color(prevColor.r, prevColor.g, prevColor.b, 0.35f);
+                bool newErr = GUILayout.Toggle(controller.ShowError, gcErr, btnStyle, GUILayout.Width(46));
+                GUI.color = prevColor;
+                var errRect = GUILayoutUtility.GetLastRect();
+                if (newErr != controller.ShowError) { controller.ShowError = newErr; changed = true; }
+
+                DrawCountBadge(logRect, cLog, new Color(0.25f, 0.55f, 0.95f, 1f), controller.ShowLog);
+                DrawCountBadge(warnRect, cWarn, new Color(0.95f, 0.75f, 0.25f, 1f), controller.ShowWarn);
+                DrawCountBadge(errRect, cErr, new Color(0.85f, 0.25f, 0.25f, 1f), controller.ShowError);
+
+                GUILayout.FlexibleSpace();
+                if (changed)
+                {
+                    controller.BuildVisible();
+                    owner.Repaint();
+                }
+            }
+        }
+
+        private static void DrawCountBadge(Rect host, int count, Color color, bool enabled)
+        {
+            if (count <= 0) return;
+            if (_badgeStyle == null)
+            {
+                _badgeStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 9, // smaller per request
+                    padding = new RectOffset(0, 0, 0, 0),
+                    clipping = TextClipping.Clip
+                };
+            }
+            string txt = count > 999 ? "999+" : count.ToString();
+            float wBase = txt.Length <= 2 ? 18f : (txt.Length == 3 ? 24f : 34f);
+            float w = wBase - 4f;
+            float h = 10f;
+            var r = new Rect(
+                Mathf.Round(host.x + host.width - w - 4f),
+                Mathf.Round(host.y + 1f),
+                w,
+                h);
+            float alpha = enabled ? 0.85f : 0.30f;
+            var bg = new Color(color.r, color.g, color.b, alpha);
+            EditorGUI.DrawRect(r, bg); // no rectangle outline per request
+            // Text outline (only text has outline) + fill
+            var oldColor = GUI.color;
+            var textContent = new GUIContent(txt);
+            Rect textRect = r;
+            Color outlineCol = new Color(0f, 0f, 0f, enabled ? 0.55f : 0.35f); // lighter alpha for thinner look
+            Color fillCol = enabled ? Color.white : new Color(1f, 1f, 1f, 0.6f);
+            // Thinner outline: only cardinal directions (N,S,W,E)
+            int[,] offsets = new int[,] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+            for (int i = 0; i < offsets.GetLength(0); i++)
+            {
+                GUI.color = outlineCol;
+                GUI.Label(new Rect(textRect.x + offsets[i, 0], textRect.y + offsets[i, 1], textRect.width, textRect.height), textContent, _badgeStyle);
+            }
+            GUI.color = fillCol;
+            GUI.Label(textRect, textContent, _badgeStyle);
+            GUI.color = oldColor;
+        }
+        #endregion
+
+        #region Stack Pane
+        public static void DrawStackPane(
+            Rect rect,
+            StyledConsoleController controller,
+            ref Vector2 scrollMessage,
+            ref Vector2 scrollStack,
+            ref float stackMessageFrac,
+            ref string ttHoverPath,
+            ref int ttHoverLine,
+            ref double ttHoverStart,
+            ref bool ttShowing,
+            ref double ttLastShowTime,
+            EditorWindow owner)
+        {
+            GUI.Box(rect, GUIContent.none);
+
+            float contentTop = rect.y + 4f;
+            float contentBottom = rect.yMax - 4f;
+            float totalH = Mathf.Max(0f, contentBottom - contentTop);
+            const float MinMessageH = 40f;
+            const float MinFramesH = 80f;
+            float desiredMsgH = Mathf.Clamp(totalH * stackMessageFrac, MinMessageH, Mathf.Max(MinMessageH, totalH - MinFramesH));
+            var messageRect = new Rect(rect.x + 6f, contentTop, rect.width - 12f, desiredMsgH);
+            GUI.Box(messageRect, GUIContent.none, EditorStyles.helpBox);
+
+            string messageText = string.Empty;
+            string originalFullMessage = string.Empty; // preserve full for path extraction even if we trim (compiler case)
+            bool isCompiler = false;
+            if (controller.GetVisibleCount() > 0 && controller.SelectedIndex >= 0)
+            {
+                try
+                {
+                    controller.GetVisibleRow(controller.SelectedIndex, out var type, out var tag, out var rich, out _, out _, out _);
+                    isCompiler = tag == "Compiler";
+                    messageText = rich ?? string.Empty;
+                    originalFullMessage = messageText;
+                }
+                catch { }
+            }
+            if (isCompiler && !string.IsNullOrEmpty(messageText))
+            {
+                int firstColon = messageText.IndexOf(':');
+                if (firstColon > 0)
+                {
+                    int secondColon = messageText.IndexOf(':', firstColon + 1);
+                    if (secondColon > firstColon && secondColon + 1 < messageText.Length)
+                    {
+                        string tail = messageText.Substring(secondColon + 1).Trim();
+                        if (tail.Length > 0) messageText = tail;
+                    }
+                }
+            }
+
+            bool hoveringAny = false; string hoveringPath = null; int hoveringLine = 0; Rect hoveringScreenAnchor = default;
+            var msgInner = new Rect(messageRect.x + 6f, messageRect.y + 4f, messageRect.width - 12f, messageRect.height - 8f);
+            var msgStyle = new GUIStyle(EditorStyles.label) { richText = true, wordWrap = true };
+            var charSize = msgStyle.CalcSize(new GUIContent("W"));
+            int dynamicMaxRun = Mathf.Max(8, Mathf.FloorToInt((msgInner.width - 12f) / Mathf.Max(1f, charSize.x)) - 1);
+            string displayMessageText = InsertSoftWraps(messageText, dynamicMaxRun);
+            float msgContentH = Mathf.Max(18f, msgStyle.CalcHeight(new GUIContent(displayMessageText), msgInner.width - 16f));
+            var msgView = new Rect(msgInner.x, msgInner.y, msgInner.width, msgInner.height);
+            var msgContent = new Rect(0, 0, msgInner.width - 16f, msgContentH + 4f);
+            scrollMessage = GUI.BeginScrollView(msgView, scrollMessage, msgContent);
+
+            var msgLabelRect = new Rect(0, 0, msgContent.width, msgContentH);
+            GUI.Label(msgLabelRect, displayMessageText, msgStyle); // inline links removed per request; stack pane frames show links
+            GUI.EndScrollView();
+
+            var innerSplitRect = new Rect(rect.x + 2f, messageRect.yMax + 2f, rect.width - 4f, 4f);
+            float localStackMessageFrac = stackMessageFrac;
+            DrawHSplitter(innerSplitRect,
+                dy =>
+                {
+                    float newMsgH = Mathf.Clamp(desiredMsgH + dy, MinMessageH, Mathf.Max(MinMessageH, totalH - MinFramesH));
+                    localStackMessageFrac = totalH > 0 ? newMsgH / totalH : localStackMessageFrac;
+                    owner.Repaint();
+                }, null);
+            stackMessageFrac = localStackMessageFrac;
+
+            var stack = controller.SelectedStack();
+            var frames = StyledConsoleController.ParseStackFrames(stack);
+            // List starts immediately – only clickable frame rows (no extra callsite label/button per request).
+            float listTop = innerSplitRect.yMax + 4f;
+            float listH = Mathf.Max(0f, rect.yMax - listTop - 4f);
+            var viewRect = new Rect(rect.x + 2f, listTop, rect.width - 4f, listH);
+            int lineH = 18;
+            var contentRect = new Rect(0, 0, viewRect.width - 16f, Mathf.Max(listH, frames.Count * lineH));
+            scrollStack = GUI.BeginScrollView(viewRect, scrollStack, contentRect);
+            if (frames.Count == 0)
+            { GUI.Label(new Rect(6f, 4f, contentRect.width - 12f, 18f), "<no stacktrace>", EditorStyles.helpBox); }
+            else
+            {
+                var baseStyle = new GUIStyle(EditorStyles.label) { richText = false, wordWrap = false };
+                var linkColor = EditorGUIUtility.isProSkin ? new Color(0.3f, 0.85f, 0.5f) : new Color(0.05f, 0.6f, 0.25f);
+                var linkStyle = new GUIStyle(baseStyle); linkStyle.normal.textColor = linkColor;
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    var f = frames[i]; var row = new Rect(6f, i * lineH, contentRect.width - 12f, lineH);
+                    if (!string.IsNullOrEmpty(f.path) && f.line > 0)
+                    {
+                        string prefix = (string.IsNullOrEmpty(f.method) ? "" : f.method) + " (at "; Rect linkRect;
+                        DrawInlineFileLink(row, prefix, f.display, ")", baseStyle, linkStyle, linkColor, out linkRect);
+                        bool hover = linkRect.width > 0 && linkRect.Contains(Event.current.mousePosition);
+                        if (hover)
+                        {
+                            hoveringAny = true; hoveringPath = StyledConsoleController.NormalizeToAbsolutePath(f.path); hoveringLine = f.line;
+                            Vector2 rectPos = new Vector2(linkRect.xMax + 1f, linkRect.y - 2f);
+                            Vector2 linkScreenPoint = GUIUtility.GUIToScreenPoint(rectPos);
+                            hoveringScreenAnchor = new Rect(linkScreenPoint, new Vector2(1, 1));
+                        }
+                        if (Event.current.type == EventType.MouseDown && hover) { StyledConsoleController.OpenFrame(f); Event.current.Use(); }
+                    }
+                    else { GUI.Label(row, f.raw, baseStyle); }
+                }
+            }
+            GUI.EndScrollView();
+
+            if (Event.current.type == EventType.Repaint)
+            {
+                double now = EditorApplication.timeSinceStartup;
+                if (hoveringAny && !string.IsNullOrEmpty(hoveringPath))
+                {
+                    bool changed = ttHoverPath != hoveringPath || ttHoverLine != hoveringLine;
+                    if (changed)
+                    { ttHoverPath = hoveringPath; ttHoverLine = hoveringLine; ttHoverStart = now; }
+                    if (!ttShowing && now - ttHoverStart > 0.12f)
+                    { ConsoleCodeTooltip.ShowAtScreenRect(new Vector2(hoveringScreenAnchor.x, hoveringScreenAnchor.y), owner, ttHoverPath, Mathf.Max(1, ttHoverLine)); ttShowing = true; ttLastShowTime = now; }
+                    else if (ttShowing && changed)
+                    { ConsoleCodeTooltip.ShowAtScreenRect(new Vector2(hoveringScreenAnchor.x, hoveringScreenAnchor.y), owner, ttHoverPath, Mathf.Max(1, ttHoverLine)); ttLastShowTime = now; }
+                }
+                else
+                {
+                    if (ttShowing && now - ttLastShowTime > 0.15f)
+                    { ConsoleCodeTooltip.HideIfOwner(owner); ttShowing = false; ttHoverPath = null; ttHoverLine = 0; }
+                }
+            }
+        }
+
+        private static string InsertSoftWraps(string input, int maxRun = 80)
+        {
+            if (string.IsNullOrEmpty(input) || maxRun < 8) return input;
+            return Regex.Replace(input, @"([^\s<]{" + maxRun + @",})", m =>
+            {
+                var s = m.Value; System.Text.StringBuilder sb = new System.Text.StringBuilder(s.Length + s.Length / maxRun + 4);
+                for (int i = 0; i < s.Length; i++) { sb.Append(s[i]); if ((i + 1) % maxRun == 0 && i < s.Length - 1) sb.Append('\n'); }
+                return sb.ToString();
+            });
+        }
+        #endregion
+
         public static void DrawRows(
             Rect rect,
             StyledConsoleController controller,
@@ -85,7 +493,9 @@ namespace BattleTurn.StyledLog.Editor
             float colTypeW,
             float colTagW,
             bool collapsed,
-            ref Vector2 scroll)
+            ref Vector2 scroll,
+            System.Action<int, int> onRowMouseDown,
+            System.Action<int> onRowContextMenu)
         {
             int count = controller.GetVisibleCount();
             scroll = GUI.BeginScrollView(rect, scroll, new Rect(0, 0, rect.width - 20, count * 22));
@@ -151,12 +561,12 @@ namespace BattleTurn.StyledLog.Editor
 
                 if (Event.current.type == EventType.MouseDown && rowRect.Contains(Event.current.mousePosition))
                 {
-                    controller.HandleRowMouseDown(i, Event.current.clickCount);
+                    onRowMouseDown?.Invoke(i, Event.current.clickCount);
                     Event.current.Use();
                 }
                 if (Event.current.type == EventType.ContextClick && rowRect.Contains(Event.current.mousePosition))
                 {
-                    controller.HandleRowContextMenu(i);
+                    onRowContextMenu?.Invoke(i);
                     Event.current.Use();
                 }
             }
