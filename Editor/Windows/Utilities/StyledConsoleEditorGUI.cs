@@ -139,29 +139,44 @@ namespace BattleTurn.StyledLog.Editor
 
             var iconRect = new Rect(outer.x, outer.y, colIconW, outer.height);
             var typeRect = new Rect(iconRect.xMax, outer.y, colTypeW - colIconW, outer.height);
-            var tagRect = new Rect(colTypeW, outer.y, colTagW, outer.height);
-            var msgRect = new Rect(colTypeW + colTagW, outer.y, outer.width - (colTypeW + colTagW), outer.height);
+                var tagRect = new Rect(colTypeW, outer.y, colTagW, outer.height);
+                var msgRect = new Rect(colTypeW + colTagW, outer.y, outer.width - (colTypeW + colTagW), outer.height);
 
-            float newIconW = colIconW;
-            float newTypeW = colTypeW;
-            float newTagW = colTagW;
+                float newIconW = colIconW;
+                float newTypeW = colTypeW;
+                float newTagW = colTagW;
 
-            DrawHeaderCell(iconRect, () => DrawHeaderLabel(iconRect, "Icon"), true,
-                dx => { float minIcon = 12f; float maxIcon = Mathf.Max(minIcon, newTypeW - 40f); newIconW = Mathf.Clamp(newIconW + dx, minIcon, maxIcon); owner.Repaint(); }, null);
-            DrawHeaderCell(typeRect, () => DrawHeaderLabel(typeRect, "Type"), true,
-                dx => { newTypeW = Mathf.Max(60f, newTypeW + dx); owner.Repaint(); }, null);
-            DrawHeaderCell(tagRect, () => DrawHeaderCellTag(owner, controller, tagRect), true,
-                dx => { newTagW = Mathf.Max(60f, newTagW + dx); owner.Repaint(); }, null);
-            DrawHeaderCell(msgRect, () => DrawHeaderLabel(msgRect, "Message"), false, null, null);
+                DrawHeaderCell(iconRect, () => DrawHeaderLabel(iconRect, "Icon"), true,
+                    dx => { float minIcon = 16f; float maxIcon = Mathf.Max(minIcon, newTypeW - 40f); newIconW = Mathf.Clamp(newIconW + dx, minIcon, maxIcon); owner.Repaint(); }, null);
+                DrawHeaderCell(typeRect, () => DrawHeaderLabel(typeRect, "Type"), true,
+                    dx => { newTypeW = Mathf.Max(60f, newTypeW + dx); owner.Repaint(); }, null);
+                DrawHeaderCell(tagRect, () => DrawHeaderCellTag(owner, controller, tagRect), true,
+                    dx => { newTagW = Mathf.Max(60f, newTagW + dx); owner.Repaint(); }, null);
+                DrawHeaderCell(msgRect, () => DrawHeaderLabel(msgRect, "Message"), false, null, null);
 
-            var line = new Rect(outer.x, outer.yMax - 1f, outer.width, 1f);
-            EditorGUI.DrawRect(line, new Color(0, 0, 0, 0.2f));
+                // Draw vertical column dividers (table style)
+                {
+                    Color vLineColor = new Color(0.7f, 0.7f, 0.7f, 0.35f);
+                    float vLineY0 = outer.y;
+                    float vLineY1 = outer.yMax;
+                // Icon/Type divider (use colIconW for perfect alignment)
+                EditorGUI.DrawRect(new Rect(colIconW - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
+                    // Type/Tag divider
+                    EditorGUI.DrawRect(new Rect(typeRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
+                    // Tag/Message divider
+                    EditorGUI.DrawRect(new Rect(tagRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
+                }
 
-            // Apply after interactions
-            colIconW = newIconW;
-            colTypeW = newTypeW;
-            colTagW = newTagW;
-        }
+                // Draw a clear horizontal splitter line between header and log rows
+                // Unity Console style: 1-pixel, light gray line
+                var splitterLine = new Rect(outer.x, outer.yMax - 1f, outer.width, 1f);
+                EditorGUI.DrawRect(splitterLine, new Color(0.7f, 0.7f, 0.7f, 0.35f));
+
+                // Apply after interactions
+                colIconW = newIconW;
+                colTypeW = newTypeW;
+                colTagW = newTagW;
+            }
 
         private static float DrawHeaderLabel(Rect rect, string text)
         {
@@ -557,6 +572,17 @@ namespace BattleTurn.StyledLog.Editor
                 else
                 {
                     GUI.Label(msgRect, rich, msgStyle);
+                }
+
+                // Draw vertical column dividers for each row
+                {
+                    Color vLineColor = new Color(0.7f, 0.7f, 0.7f, 0.35f);
+                    float vLineY0 = rowRect.y;
+                    float vLineY1 = rowRect.yMax;
+                    // Icon/Type divider (use colIconW for perfect alignment)
+                    EditorGUI.DrawRect(new Rect(colIconW - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
+                    EditorGUI.DrawRect(new Rect(typeRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
+                    EditorGUI.DrawRect(new Rect(tagRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
                 }
 
                 if (Event.current.type == EventType.MouseDown && rowRect.Contains(Event.current.mousePosition))
