@@ -12,7 +12,11 @@ StyledDebug is a styled logging toolkit for Unity with a custom Styled Console i
 - Styled Console (Editor window)
   - Menu: Tools > StyledDebug > Styled Console
   - Filters (Log/Warning/Error), Collapse, Auto-scroll, Search
-  - Resizable columns: Type, Tag, Message
+  - Table-style log view: resizable columns (Icon, Type, Tag, Message) with clean vertical/horizontal dividers
+  - Selectable message area: users can select and copy text in the message pane (supports drag selection)
+  - Instant message update: message area updates immediately when a log is selected, with selection highlight reset
+  - Improved compiler message trimming: compiler errors/warnings show only the actual message text (prefix removed)
+  - Tag filter dropdown in header: “Everything” toggle and per-tag flags
   - Tag filter dropdown in header: “Everything” toggle and per-tag flags
     - “Everything” ON: shows all tags (including new ones); OFF: shows none until you pick tags
     - Your selections persist per project and reload when opening the dropdown
@@ -79,7 +83,9 @@ new StyledText("From setting", s);
   - “Everything” shows all tags; toggling individual tags creates an explicit selection set
   - Your tag selections are remembered per project
 - Click a stack link to open it; hover to see an inline code preview with the target line highlighted
-- Read the full rich-text message in the pane above the stack trace; scroll if it’s long
+  - Read the full rich-text message in the pane above the stack trace; scroll if it’s long
+  - Select and copy text from the message area (click and drag to select)
+  - When you select a new log, the message area updates instantly and clears any previous selection highlight
 - Use the toolbar dropdown to toggle: Clear on Play, Clear on Build, Clear on Recompile
 - When “Clear on Recompile” is off, logs are snapshotted and restored across script recompiles
 
@@ -93,7 +99,8 @@ When the C# compiler produces messages, they are surfaced in Styled Console unde
 
 - Custom compiler icon (assembly/code themed) with a tiny severity badge (error / warning / info) overlaid bottom‑right.
 - Live sync: existing compiler messages are re-synced whenever the window enables (no need to press a button).
-- Message trimming: the leading `Path/File.cs(line,col): severity:` prefix is collapsed in the upper message panel so you focus on the actual text; the original path and line remain accessible through the stack frame / inline link.
+  - Message trimming: the leading `Path/File.cs(line,col): severity:` prefix is collapsed in the upper message panel so you focus on the actual text; the original path and line remain accessible through the stack frame / inline link.
+  - Compiler messages now always show only the actual error/warning text (no unwanted type prefix)
 - Double‑click the row or the highlighted link to open the file at the reported line.
 
 You can also emit simulated compiler messages (see Tester window section) to visually test styles without forcing a recompile.

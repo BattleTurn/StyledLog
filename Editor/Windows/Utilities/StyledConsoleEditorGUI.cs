@@ -1,14 +1,16 @@
-using System.Text.RegularExpressions;
+using UnityEngine;
 using UnityEditor;
+using System.Text.RegularExpressions;
 using UnityEditorInternal;
 using UnityEditor.Callbacks;
-using UnityEngine;
 using System.Collections.Generic;
 
 namespace BattleTurn.StyledLog.Editor
 {
     internal static class StyledConsoleEditorGUI
     {
+        // Consistent splitter line thickness for all table view lines
+        private const float SplitterLineThickness = 1f;
         // Strip <font="..."> tags; IMGUI does not render them and we set Font via GUIStyle.
         private static readonly Regex _fontOpenTagRx = new Regex(@"<font.*?>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex _fileLineRx = new Regex(@"\(at\s+(.+):(\d+)\)", RegexOptions.Compiled);
@@ -155,7 +157,7 @@ namespace BattleTurn.StyledLog.Editor
 
             // Draw vertical column dividers (table style)
             {
-                Color vLineColor = new Color(0.7f, 0.7f, 0.7f, 0.35f);
+                Color vLineColor = Color.black;
                 float vLineY0 = outer.y;
                 float vLineY1 = outer.yMax;
                 // Icon/Type divider (use colIconW for perfect alignment)
@@ -166,10 +168,9 @@ namespace BattleTurn.StyledLog.Editor
                 EditorGUI.DrawRect(new Rect(tagRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
             }
 
-            // Draw a clear horizontal splitter line between header and log rows
-            // Unity Console style: 1-pixel, light gray line
-            var splitterLine = new Rect(outer.x, outer.yMax - 1f, outer.width, 1f);
-            EditorGUI.DrawRect(splitterLine, new Color(0.7f, 0.7f, 0.7f, 0.35f));
+            // Draw a horizontal splitter line between header and log rows
+            var splitterLine = new Rect(outer.x, outer.yMax - SplitterLineThickness, outer.width, SplitterLineThickness);
+            EditorGUI.DrawRect(splitterLine, Color.black);
         }
 
         private static float DrawHeaderLabel(Rect rect, string text)
@@ -352,6 +353,7 @@ namespace BattleTurn.StyledLog.Editor
             ref double ttLastShowTime,
             EditorWindow owner)
         {
+
             GUI.Box(rect, GUIContent.none);
 
             float contentTop = rect.y + 4f;
@@ -572,7 +574,7 @@ namespace BattleTurn.StyledLog.Editor
 
                 // Draw vertical column dividers for each row
                 {
-                    Color vLineColor = new Color(0.7f, 0.7f, 0.7f, 0.35f);
+                    Color vLineColor = Color.black;
                     float vLineY0 = rowRect.y;
                     float vLineY1 = rowRect.yMax;
                     // Icon/Type divider (use colIconW for perfect alignment)
@@ -670,7 +672,9 @@ namespace BattleTurn.StyledLog.Editor
         public static void DrawHSplitter(Rect r, System.Action<float> onDragDelta, System.Action onFinish)
         {
             EditorGUIUtility.AddCursorRect(r, MouseCursor.ResizeVertical);
-            EditorGUI.DrawRect(r, new Color(0, 0, 0, 0.25f));
+            // Draw thin splitter line using the shared thickness constant
+            var thinLine = new Rect(r.x, r.y, r.width, SplitterLineThickness);
+            EditorGUI.DrawRect(thinLine, Color.black);
 
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
             var e = Event.current;
