@@ -131,52 +131,46 @@ namespace BattleTurn.StyledLog.Editor
         #endregion
 
         #region Header
-        public static void DrawHeader(EditorWindow owner, StyledConsoleController controller,
-            ref float colIconW, ref float colTypeW, ref float colTagW)
+        public static void DrawHeader(EditorWindow owner, StyledConsoleController controller)
         {
             var outer = GUILayoutUtility.GetRect(0, 20f, GUILayout.ExpandWidth(true));
             GUI.Box(outer, GUIContent.none, "box");
 
+            float colIconW = controller.ColIconW;
+            float colTypeW = controller.ColTypeW;
+            float colTagW = controller.ColTagW;
+
             var iconRect = new Rect(outer.x, outer.y, colIconW, outer.height);
             var typeRect = new Rect(iconRect.xMax, outer.y, colTypeW - colIconW, outer.height);
-                var tagRect = new Rect(colTypeW, outer.y, colTagW, outer.height);
-                var msgRect = new Rect(colTypeW + colTagW, outer.y, outer.width - (colTypeW + colTagW), outer.height);
+            var tagRect = new Rect(colTypeW, outer.y, colTagW, outer.height);
+            var msgRect = new Rect(colTypeW + colTagW, outer.y, outer.width - (colTypeW + colTagW), outer.height);
 
-                float newIconW = colIconW;
-                float newTypeW = colTypeW;
-                float newTagW = colTagW;
+            DrawHeaderCell(iconRect, () => DrawHeaderLabel(iconRect, "Icon"), true,
+                dx => { controller.ResizeColumn(0, dx); owner.Repaint(); }, null);
+            DrawHeaderCell(typeRect, () => DrawHeaderLabel(typeRect, "Type"), true,
+                dx => { controller.ResizeColumn(1, dx); owner.Repaint(); }, null);
+            DrawHeaderCell(tagRect, () => DrawHeaderCellTag(owner, controller, tagRect), true,
+                dx => { controller.ResizeColumn(2, dx); owner.Repaint(); }, null);
+            DrawHeaderCell(msgRect, () => DrawHeaderLabel(msgRect, "Message"), false, null, null);
 
-                DrawHeaderCell(iconRect, () => DrawHeaderLabel(iconRect, "Icon"), true,
-                    dx => { float minIcon = 16f; float maxIcon = Mathf.Max(minIcon, newTypeW - 40f); newIconW = Mathf.Clamp(newIconW + dx, minIcon, maxIcon); owner.Repaint(); }, null);
-                DrawHeaderCell(typeRect, () => DrawHeaderLabel(typeRect, "Type"), true,
-                    dx => { newTypeW = Mathf.Max(60f, newTypeW + dx); owner.Repaint(); }, null);
-                DrawHeaderCell(tagRect, () => DrawHeaderCellTag(owner, controller, tagRect), true,
-                    dx => { newTagW = Mathf.Max(60f, newTagW + dx); owner.Repaint(); }, null);
-                DrawHeaderCell(msgRect, () => DrawHeaderLabel(msgRect, "Message"), false, null, null);
-
-                // Draw vertical column dividers (table style)
-                {
-                    Color vLineColor = new Color(0.7f, 0.7f, 0.7f, 0.35f);
-                    float vLineY0 = outer.y;
-                    float vLineY1 = outer.yMax;
+            // Draw vertical column dividers (table style)
+            {
+                Color vLineColor = new Color(0.7f, 0.7f, 0.7f, 0.35f);
+                float vLineY0 = outer.y;
+                float vLineY1 = outer.yMax;
                 // Icon/Type divider (use colIconW for perfect alignment)
                 EditorGUI.DrawRect(new Rect(colIconW - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
-                    // Type/Tag divider
-                    EditorGUI.DrawRect(new Rect(typeRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
-                    // Tag/Message divider
-                    EditorGUI.DrawRect(new Rect(tagRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
-                }
-
-                // Draw a clear horizontal splitter line between header and log rows
-                // Unity Console style: 1-pixel, light gray line
-                var splitterLine = new Rect(outer.x, outer.yMax - 1f, outer.width, 1f);
-                EditorGUI.DrawRect(splitterLine, new Color(0.7f, 0.7f, 0.7f, 0.35f));
-
-                // Apply after interactions
-                colIconW = newIconW;
-                colTypeW = newTypeW;
-                colTagW = newTagW;
+                // Type/Tag divider
+                EditorGUI.DrawRect(new Rect(typeRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
+                // Tag/Message divider
+                EditorGUI.DrawRect(new Rect(tagRect.xMax - 1f, vLineY0, 1f, vLineY1 - vLineY0), vLineColor);
             }
+
+            // Draw a clear horizontal splitter line between header and log rows
+            // Unity Console style: 1-pixel, light gray line
+            var splitterLine = new Rect(outer.x, outer.yMax - 1f, outer.width, 1f);
+            EditorGUI.DrawRect(splitterLine, new Color(0.7f, 0.7f, 0.7f, 0.35f));
+        }
 
         private static float DrawHeaderLabel(Rect rect, string text)
         {
@@ -246,11 +240,7 @@ namespace BattleTurn.StyledLog.Editor
         {
             drawer?.Invoke();
             bool hasDrag = onDrag != null;
-            if (drawSeparator && !hasDrag)
-            {
-                var sepLine = new Rect(rect.xMax - 1f, rect.y + 1f, 1f, rect.height - 2f);
-                EditorGUI.DrawRect(sepLine, new Color(0, 0, 0, 0.28f));
-            }
+            // Ensure no black vertical separator line is drawn; only table-style gray divider remains
             if (hasDrag)
             {
                 var hit = new Rect(rect.xMax - 3f, rect.y, 6f, rect.height);
@@ -504,9 +494,6 @@ namespace BattleTurn.StyledLog.Editor
             GUIContent iconInfo,
             GUIContent iconWarn,
             GUIContent iconError,
-            float colIconW,
-            float colTypeW,
-            float colTagW,
             bool collapsed,
             ref Vector2 scroll,
             System.Action<int, int> onRowMouseDown,
@@ -521,6 +508,10 @@ namespace BattleTurn.StyledLog.Editor
                 GUI.EndScrollView();
                 return;
             }
+
+            float colIconW = controller.ColIconW;
+            float colTypeW = controller.ColTypeW;
+            float colTagW = controller.ColTagW;
 
             for (int i = 0; i < count; i++)
             {
@@ -636,8 +627,7 @@ namespace BattleTurn.StyledLog.Editor
             var hit = r; hit.width = Mathf.Max(8f, r.width);
             EditorGUIUtility.AddCursorRect(hit, MouseCursor.ResizeHorizontal);
 
-            var line = r; line.width = 1f;
-            EditorGUI.DrawRect(line, new Color(0, 0, 0, 0.25f));
+            // Removed black vertical line for header column split; only drag handle remains
 
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
             var e = Event.current;

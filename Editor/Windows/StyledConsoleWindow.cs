@@ -128,13 +128,11 @@ namespace BattleTurn.StyledLog.Editor
         private void OnGUI()
         {
             StyledConsoleEditorGUI.DrawToolbar(this, _controller, ref _autoScroll);
-            StyledConsoleEditorGUI.DrawHeader(this, _controller, ref _colIconW, ref _colTypeW, ref _colTagW);
+            StyledConsoleEditorGUI.DrawHeader(this, _controller);
             _controller.BuildVisible();
 
-            // Chiều cao còn lại của cửa sổ
             float availH = position.height;
 
-            // Ước lượng phần header + toolbar + status (đã vẽ bằng layout ở trên & dưới)
             const float topChrome = 20f /*header*/ + 22f /*toolbar*/ + 6f;
             const float bottomChrome = 22f /*status*/ + 6f;
 
@@ -154,7 +152,6 @@ namespace BattleTurn.StyledLog.Editor
             // LIST
             using (new EditorGUILayout.VerticalScope(GUILayout.ExpandHeight(true)))
             {
-                // vùng list chiếm listH
                 var listRect = GUILayoutUtility.GetRect(0, listH, GUILayout.ExpandWidth(true));
                 DrawRowsAreaLayout(listRect);
 
@@ -209,9 +206,6 @@ namespace BattleTurn.StyledLog.Editor
                 _iconInfo,
                 _iconWarn,
                 _iconError,
-                _colIconW,
-                _colTypeW,
-                _colTagW,
                 _controller.Collapse,
                 ref _scrollList,
                 OnRowMouseDown,

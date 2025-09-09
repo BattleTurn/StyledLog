@@ -529,6 +529,30 @@ namespace BattleTurn.StyledLog.Editor
         internal bool Collapse = false;
         internal string Search = string.Empty;
         internal int SelectedIndex = -1;
+
+        // Column widths for table view (Icon, Type, Tag)
+        public float ColIconW { get; set; } = 24f;
+        public float ColTypeW { get; set; } = 100f;
+        public float ColTagW { get; set; } = 100f;
+
+        // Column resizing logic
+        public void ResizeColumn(int column, float delta)
+        {
+            switch (column)
+            {
+                case 0: // Icon
+                    float minIcon = 16f;
+                    float maxIcon = Mathf.Max(minIcon, ColTypeW - 40f);
+                    ColIconW = Mathf.Clamp(ColIconW + delta, minIcon, maxIcon);
+                    break;
+                case 1: // Type
+                    ColTypeW = Mathf.Max(60f, ColTypeW + delta);
+                    break;
+                case 2: // Tag
+                    ColTagW = Mathf.Max(60f, ColTagW + delta);
+                    break;
+            }
+        }
         // Tag filter persistence and semantics
         // - TagEverything: when true and no explicit selections, treat all tags as enabled (including future tags)
         // - When false and no explicit selections, treat all tags as disabled
