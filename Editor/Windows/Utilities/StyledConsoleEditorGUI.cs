@@ -366,28 +366,31 @@ namespace BattleTurn.StyledLog.Editor
             string messageText = string.Empty;
             string originalFullMessage = string.Empty; // preserve full for path extraction even if we trim (compiler case)
             bool isCompiler = false;
-            if (controller.GetVisibleCount() > 0 && controller.SelectedIndex >= 0)
+            int selectedIndex = controller.SelectedIndex;
+            if (controller.GetVisibleCount() > 0 && selectedIndex >= 0 && selectedIndex < controller.GetVisibleCount())
             {
-                try
-                {
-                    controller.GetVisibleRow(controller.SelectedIndex, out var type, out var tag, out var rich, out _, out _, out _);
-                    isCompiler = tag == "Compiler";
-                    messageText = rich ?? string.Empty;
-                    originalFullMessage = messageText;
-                }
-                catch { }
+                controller.GetVisibleRow(selectedIndex, out var type, out var tag, out var rich, out _, out _, out _);
+                isCompiler = tag == "Compiler";
+                messageText = rich ?? string.Empty;
+                originalFullMessage = messageText;
+            }
+            else
+            {
+                messageText = "<no log selected>";
+            }
+            // Force repaint if selection changed (fixes Alt+Tab bug)
+            if (Event.current.type == EventType.Layout)
+            {
+                owner.Repaint();
             }
             if (isCompiler && !string.IsNullOrEmpty(messageText))
             {
-                int firstColon = messageText.IndexOf(':');
-                if (firstColon > 0)
+                // Remove 'error:' or 'warning:' prefix if present
+                int prefixIdx = messageText.IndexOf(':');
+                if (prefixIdx > 0 && prefixIdx + 1 < messageText.Length)
                 {
-                    int secondColon = messageText.IndexOf(':', firstColon + 1);
-                    if (secondColon > firstColon && secondColon + 1 < messageText.Length)
-                    {
-                        string tail = messageText.Substring(secondColon + 1).Trim();
-                        if (tail.Length > 0) messageText = tail;
-                    }
+                    string tail = messageText.Substring(prefixIdx + 1).Trim();
+                    if (tail.Length > 0) messageText = tail;
                 }
             }
 
@@ -403,7 +406,9 @@ namespace BattleTurn.StyledLog.Editor
             scrollMessage = GUI.BeginScrollView(msgView, scrollMessage, msgContent);
 
             var msgLabelRect = new Rect(0, 0, msgContent.width, msgContentH);
-            GUI.Label(msgLabelRect, displayMessageText, msgStyle); // inline links removed per request; stack pane frames show links
+            // Use a unique control name per selected log to force selection reset
+            GUI.SetNextControlName($"StyledConsole_Message_{controller.SelectedIndex}");
+            EditorGUI.SelectableLabel(msgLabelRect, displayMessageText, msgStyle);
             GUI.EndScrollView();
 
             var innerSplitRect = new Rect(rect.x + 2f, messageRect.yMax + 2f, rect.width - 4f, 4f);

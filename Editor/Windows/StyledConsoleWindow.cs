@@ -215,7 +215,9 @@ namespace BattleTurn.StyledLog.Editor
 
         private void OnRowMouseDown(int index, int clickCount)
         {
-            _controller.SelectedIndex = index; // selection state still inside controller for now
+            _controller.SelectedIndex = index;
+            _scrollMessage = Vector2.zero; // always reset message area scroll and selection
+            GUI.FocusControl(null); // clear focus so selection highlight disappears
             if (clickCount == 2)
             {
                 StyledConsoleEditorGUI.OpenFirstUserFrame(_controller.SelectedStack());
